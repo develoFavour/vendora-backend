@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/developia-II/ecommerce-backend/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -29,35 +30,67 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 
 	if db != nil {
 		logrus.Info("Database connected - setting up database routes")
-		router.POST("/api/v1/auth/register", NewAuthHandler(db).CreateUser)
-		router.POST("/api/v1/auth/verify/:token", NewAuthHandler(db).VerifyEmail)
-		router.POST("/api/v1/auth/login", NewAuthHandler(db).LoginUser)
-		router.POST("/api/v1/auth/refresh-token", NewAuthHandler(db).RefreshToken)
-		router.POST("/api/v1/auth/forgot-password", NewAuthHandler(db).ForgotPassword)
-		router.POST("/api/v1/auth/reset-password", NewAuthHandler(db).ResetPassword)
-		router.POST("/api/v1/onboarding/interests", NewOnboardingHandler(db).ClientUpdateInterest)
-		router.POST("/api/v1/onboarding/preference", NewOnboardingHandler(db).ClientUpdatePreference)
-		router.POST("/api/v1/onboarding/profile", NewOnboardingHandler(db).CompleteOnboardingFlow)
-		router.POST("/api/v1/onboarding/draft", NewOnboardingHandler(db).UserOnboardingDraft)
-		router.GET("/api/v1/onboarding/draft", NewOnboardingHandler(db).GetOnboardingDraft)
-		router.POST("/api/v1/auth/resend/:token", NewAuthHandler(db).ResendVerification)
-		router.POST("/api/v1/onboarding/seller/business-type", NewOnboardingHandler(db).SellerBusinessType)
-		router.POST("/api/v1/onboarding/seller/business-category", NewOnboardingHandler(db).SellerBusinessCategory)
-		router.POST("/api/v1/onboarding/seller/business-details", NewOnboardingHandler(db).SellerBusinessInfo)
-		router.POST("/api/v1/onboarding/seller/store-details", NewOnboardingHandler(db).StoreDetails)
-		router.POST("/api/v1/onboarding/seller/verification", NewOnboardingHandler(db).SellerVerification)
+		authHandler := NewAuthHandler(db)
+		onboardingHandler := NewOnboardingHandler(db)
+		productHandler := NewProductHandler(db)
+		categoryHandler := NewCategoryHandler(db)
+		uploadHandler := NewUploadHandler(db)
 
-		// Product & Media Routes
-		router.POST("/api/v1/products", NewProductHandler(db).CreateProduct)
-		router.GET("/api/v1/products", NewProductHandler(db).GetVendorProducts)
-		router.PUT("/api/v1/products/:id", NewProductHandler(db).UpdateProduct)
-		router.GET("/api/v1/products/:id", NewProductHandler(db).GetProductById)
-		router.POST("/api/v1/upload", NewUploadHandler(db).UploadImage)
+		// Public Routes
+		authGroup := router.Group("/api/v1/auth")
+		{
+			authGroup.POST("/register", authHandler.CreateUser)
+			authGroup.POST("/verify/:token", authHandler.VerifyEmail)
+			authGroup.POST("/login", authHandler.LoginUser)
+			authGroup.POST("/refresh-token", authHandler.RefreshToken)
+			authGroup.POST("/forgot-password", authHandler.ForgotPassword)
+			authGroup.POST("/reset-password", authHandler.ResetPassword)
+			authGroup.POST("/resend/:token", authHandler.ResendVerification)
+		}
 
-		// Admin Route
-		// Category Routes
-		router.POST("/api/v1/categories", NewCategoryHandler(db).CreateProductCategory)
-		router.GET("/api/v1/categories", NewCategoryHandler(db).GetAllProductCategories)
+		// Protected Routes
+		protected := router.Group("/api/v1")
+		protected.Use(middleware.AuthMiddleware())
+		{
+			// Onboarding Routes
+			onboarding := protected.Group("/onboarding")
+			{
+				onboarding.POST("/interests", onboardingHandler.ClientUpdateInterest)
+				onboarding.POST("/preference", onboardingHandler.ClientUpdatePreference)
+				onboarding.POST("/profile", onboardingHandler.CompleteOnboardingFlow)
+				onboarding.POST("/draft", onboardingHandler.UserOnboardingDraft)
+				onboarding.GET("/draft", onboardingHandler.GetOnboardingDraft)
+
+				seller := onboarding.Group("/seller")
+				{
+					seller.POST("/business-type", onboardingHandler.SellerBusinessType)
+					seller.POST("/business-category", onboardingHandler.SellerBusinessCategory)
+					seller.POST("/business-details", onboardingHandler.SellerBusinessInfo)
+					seller.POST("/store-details", onboardingHandler.StoreDetails)
+					seller.POST("/verification", onboardingHandler.SellerVerification)
+				}
+			}
+
+			// Product Routes
+			products := protected.Group("/products")
+			{
+				products.POST("", middleware.RoleMiddleware("vendor", "seller"), productHandler.CreateProduct)
+				products.GET("", productHandler.GetVendorProducts)
+				products.PUT("/:id", productHandler.UpdateProduct)
+				products.GET("/:id", productHandler.GetProductById)
+				products.DELETE("/:id", productHandler.DeleteProduct)
+			}
+
+			// Media Routes
+			protected.POST("/upload", uploadHandler.UploadImage)
+
+			// Category Routes
+			categories := protected.Group("/categories")
+			{
+				categories.POST("", middleware.RoleMiddleware("admin"), categoryHandler.CreateProductCategory)
+				categories.GET("", categoryHandler.GetAllProductCategories)
+			}
+		}
 
 	} else {
 		logrus.Warn("Database not connected - running with limited functionality")

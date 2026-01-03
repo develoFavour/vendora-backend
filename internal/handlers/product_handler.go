@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/developia-II/ecommerce-backend/internal/models"
@@ -25,23 +24,15 @@ func NewProductHandler(db *mongo.Database) *ProductHandler {
 	return &ProductHandler{DB: db}
 }
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(authStr)
-	if err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
-		return
-	}
+	// Get user info from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+	role, _ := c.Get("role")
 
-	if claims.Role != "vendor" {
+	if role.(string) != "vendor" {
 		c.JSON(http.StatusForbidden, utils.ErrorResponse("Only vendors can create products"))
 		return
 	}
-	userId, err := primitive.ObjectIDFromHex(claims.UserID)
+	userId, err := primitive.ObjectIDFromHex(userIdStr.(string))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid userId"))
 		return
@@ -122,22 +113,16 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 }
 
 func (h *ProductHandler) GetVendorProducts(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
+	// Get user info from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
+
 	limit := c.Request.URL.Query().Get("limit")
 	page := c.Request.URL.Query().Get("page")
 	searchTerm := c.Request.URL.Query().Get("query")
-	claims, err := utils.VerifyToken(authStr)
-	if err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
-		return
-	}
+
 	if limit == "" {
 		limit = "10"
 	}
@@ -148,7 +133,7 @@ func (h *ProductHandler) GetVendorProducts(c *gin.Context) {
 	convLimit, _ := strconv.ParseInt(limit, 10, 64)
 	skip := (pageConv - 1) * int(convLimit)
 	collection := h.DB.Collection("products")
-	vendorID, err := primitive.ObjectIDFromHex(claims.UserID)
+	vendorID, err := primitive.ObjectIDFromHex(userIdStr.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("invalid or missing token"))
 		return
@@ -206,22 +191,13 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(authStr)
-	if err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
-		return
-	}
+	// Get user info from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	vendorId, err := primitive.ObjectIDFromHex(claims.UserID)
+	vendorId, err := primitive.ObjectIDFromHex(userIdStr.(string))
 	var existingProduct models.Product
 
 	collections := h.DB.Collection("products")
@@ -258,16 +234,6 @@ func (h *ProductHandler) GetProductById(c *gin.Context) {
 		return
 	}
 
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	if _, err := utils.VerifyToken(authStr); err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
-		return
-	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
@@ -284,4 +250,59 @@ func (h *ProductHandler) GetProductById(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, utils.SuccessResponse("product fetched successfully", res))
 
+}
+
+func (h *ProductHandler) DeleteProduct(c *gin.Context) {
+	id, _ := c.Params.Get("id")
+	productId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid product id"))
+		return
+	}
+
+	// Get user info from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	vendorId, err := primitive.ObjectIDFromHex(userIdStr.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("invalid token claims"))
+		return
+	}
+	filter := bson.M{"_id": productId, "vendorId": vendorId}
+
+	session, err := h.DB.Client().StartSession()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to start session"))
+		return
+	}
+	defer session.EndSession(ctx)
+
+	callback := func(sessCtx mongo.SessionContext) (interface{}, error) {
+		collection := h.DB.Collection("products")
+		res, err := collection.DeleteOne(sessCtx, filter)
+		if err != nil {
+			return nil, err
+		}
+		if res.DeletedCount == 0 {
+			return nil, fmt.Errorf("product not found or unauthorized")
+		}
+
+		vendorAcc := h.DB.Collection("vendorAccounts")
+		_, err = vendorAcc.UpdateOne(sessCtx, bson.M{"userID": vendorId}, bson.M{"$inc": bson.M{"productCount": -1}})
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	_, err = session.WithTransaction(ctx, callback)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("product deleted successfully", gin.H{}))
 }

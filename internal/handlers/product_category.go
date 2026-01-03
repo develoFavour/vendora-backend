@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/developia-II/ecommerce-backend/internal/models"
@@ -22,21 +21,7 @@ func NewCategoryHandler(db *mongo.Database) *CategoryHandler {
 	return &CategoryHandler{DB: db}
 }
 func (h *CategoryHandler) CreateProductCategory(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(authStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	if claims.Role != "admin" {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Permission not granted to create category"))
-		return
-	}
+	// Role check is handled by RoleMiddleware in routes.go
 	var category models.Category
 	if err := c.ShouldBindJSON(&category); err != nil {
 		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid json payload"))
@@ -68,17 +53,6 @@ func (h *CategoryHandler) CreateProductCategory(c *gin.Context) {
 	c.JSON(http.StatusCreated, utils.SuccessResponse("category created successfully", res))
 }
 func (h *CategoryHandler) GetAllProductCategories(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	_, err := utils.VerifyToken(authStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 	limit := 10

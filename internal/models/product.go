@@ -97,32 +97,32 @@ type Product struct {
 	UpdatedAt time.Time `json:"updatedAt" bson:"updatedAt"`
 }
 type UpdateProductInput struct {
-	Name        string             `json:"name" bson:"name"`
-	Description string             `json:"description" bson:"description"`
-	Price       float64            `json:"price" bson:"price"`
-	Stock       int                `json:"stock" bson:"stock"`
-	CategoryId  primitive.ObjectID `json:"categoryId" bson:"categoryId"`
-	SEO         SEO                `json:"seo" bson:"seo"`
-	SKU         string             `json:"sku" bson:"sku"`
-	Metadata    map[string]string  `json:"metadata" bson:"metadata"`
-	Status      ProductStatus      `json:"status" bson:"status"`
-	UpdatedAt   time.Time          `json:"updatedAt" bson:"updatedAt"`
+	Name        *string             `json:"name,omitempty" bson:"name,omitempty"`
+	Description *string             `json:"description,omitempty" bson:"description,omitempty"`
+	Price       *float64            `json:"price,omitempty" bson:"price,omitempty"`
+	Stock       *int                `json:"stock,omitempty" bson:"stock,omitempty"`
+	CategoryId  *primitive.ObjectID `json:"categoryId,omitempty" bson:"categoryId,omitempty"`
+	SEO         *SEO                `json:"seo,omitempty" bson:"seo,omitempty"`
+	SKU         *string             `json:"sku,omitempty" bson:"sku,omitempty"`
+	Metadata    *map[string]string  `json:"metadata,omitempty" bson:"metadata,omitempty"`
+	Status      *ProductStatus      `json:"status,omitempty" bson:"status,omitempty"`
+	UpdatedAt   time.Time           `json:"updatedAt" bson:"updatedAt"`
 
-	SalePrice         float64         `json:"salePrice" bson:"salePrice"`
-	CostPrice         float64         `json:"costPrice" bson:"costPrice"`
-	TaxRate           float64         `json:"taxRate" bson:"taxRate"`
-	Tags              []string        `json:"tags" bson:"tags"`
-	Brand             string          `json:"brand" bson:"brand"`
-	Dimensions        Dimensions      `json:"dimensions" bson:"dimensions"`
-	ShippingClass     string          `json:"shippingClass" bson:"shippingClass"`
-	IsDigital         bool            `json:"isDigital" bson:"isDigital"`
-	LowStockThreshold int             `json:"lowStockThreshold" bson:"lowStockThreshold"`
-	AllowBackorder    bool            `json:"allowBackorder" bson:"allowBackorder"`
-	HasVariants       bool            `json:"hasVariants" bson:"hasVariants"`
-	VariantOptions    []VariantOption `json:"variantOptions" bson:"variantOptions"`
-	Variants          []Variant       `json:"variants" bson:"variants"`
+	SalePrice         *float64         `json:"salePrice,omitempty" bson:"salePrice,omitempty"`
+	CostPrice         *float64         `json:"costPrice,omitempty" bson:"costPrice,omitempty"`
+	TaxRate           *float64         `json:"taxRate,omitempty" bson:"taxRate,omitempty"`
+	Tags              *[]string        `json:"tags,omitempty" bson:"tags,omitempty"`
+	Brand             *string          `json:"brand,omitempty" bson:"brand,omitempty"`
+	Dimensions        *Dimensions      `json:"dimensions,omitempty" bson:"dimensions,omitempty"`
+	ShippingClass     *string          `json:"shippingClass,omitempty" bson:"shippingClass,omitempty"`
+	IsDigital         *bool            `json:"isDigital,omitempty" bson:"isDigital,omitempty"`
+	LowStockThreshold *int             `json:"lowStockThreshold,omitempty" bson:"lowStockThreshold,omitempty"`
+	AllowBackorder    *bool            `json:"allowBackorder,omitempty" bson:"allowBackorder,omitempty"`
+	HasVariants       *bool            `json:"hasVariants,omitempty" bson:"hasVariants,omitempty"`
+	VariantOptions    *[]VariantOption `json:"variantOptions,omitempty" bson:"variantOptions,omitempty"`
+	Variants          *[]Variant       `json:"variants,omitempty" bson:"variants,omitempty"`
 
-	SubCategoryIds []primitive.ObjectID `json:"subCategoryIds" bson:"subCategoryIds"`
-	Images         []string             `json:"images" bson:"images"`
-	VideoURL       string               `json:"videoUrl" bson:"videoUrl"`
+	SubCategoryIds *[]primitive.ObjectID `json:"subCategoryIds,omitempty" bson:"subCategoryIds,omitempty"`
+	Images         *[]string             `json:"images,omitempty" bson:"images,omitempty"`
+	VideoURL       *string               `json:"videoUrl,omitempty" bson:"videoUrl,omitempty"`
 }

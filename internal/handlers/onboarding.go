@@ -32,25 +32,14 @@ func NewOnboardingHandler(db *mongo.Database) *OnboardingHandler {
 var onboardingValidator = validator.New()
 
 func (h *OnboardingHandler) ClientUpdateInterest(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Missing or invalid token"))
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-	claims, err := utils.VerifyToken(tokenString)
-	if err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Missing or Invalid token"))
-		return
-	}
-	userId := claims.UserID
+	// Get userId from context (set by AuthMiddleware)
+	userId, _ := c.Get("userId")
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second*10)
 	defer cancel()
 
 	var user models.User
 	collection := h.DB.Collection("users")
-	objectId, err := primitive.ObjectIDFromHex(userId)
+	objectId, err := primitive.ObjectIDFromHex(userId.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Invalid or missing token"))
 		return
@@ -98,20 +87,9 @@ func (h *OnboardingHandler) ClientUpdateInterest(c *gin.Context) {
 }
 
 func (h *OnboardingHandler) ClientUpdatePreference(c *gin.Context) {
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(tokenString)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to verify token"))
-		return
-	}
-
-	objectId, err := primitive.ObjectIDFromHex(claims.UserID)
+	// Get userId from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+	objectId, err := primitive.ObjectIDFromHex(userIdStr.(string))
 	if err != nil {
 		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid token"))
 		return
@@ -171,17 +149,9 @@ func (h *OnboardingHandler) ClientUpdatePreference(c *gin.Context) {
 
 func (h *OnboardingHandler) CompleteOnboardingFlow(c *gin.Context) {
 
-	authHeader := c.Request.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(tokenString)
-	if err != nil {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or expired token"))
-		return
-	}
+	// Get userId from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+	objectId, err := primitive.ObjectIDFromHex(userIdStr.(string))
 
 	location := c.PostForm("location")
 	bio := c.PostForm("bio")
@@ -228,7 +198,6 @@ func (h *OnboardingHandler) CompleteOnboardingFlow(c *gin.Context) {
 		return
 	}
 
-	objectId, err := primitive.ObjectIDFromHex(claims.UserID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid user ID"))
 		return
