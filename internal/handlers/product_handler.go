@@ -249,3 +249,39 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, utils.SuccessResponse("product updated successfully", gin.H{"success": true}))
 }
+
+func (h *ProductHandler) GetProductById(c *gin.Context) {
+	id, _ := c.Params.Get("id")
+	productId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid product id"))
+		return
+	}
+
+	authHeader := c.Request.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
+		return
+	}
+	authStr := strings.TrimPrefix(authHeader, "Bearer ")
+	if _, err := utils.VerifyToken(authStr); err != nil {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"_id": productId}
+	collection := h.DB.Collection("products")
+	var product models.Product
+	if err := collection.FindOne(ctx, filter).Decode(&product); err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("product not found"))
+		return
+	}
+
+	res := gin.H{
+		"product": product,
+	}
+	c.JSON(http.StatusOK, utils.SuccessResponse("product fetched successfully", res))
+
+}

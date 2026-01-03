@@ -51,6 +51,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		router.POST("/api/v1/products", NewProductHandler(db).CreateProduct)
 		router.GET("/api/v1/products", NewProductHandler(db).GetVendorProducts)
 		router.PUT("/api/v1/products/:id", NewProductHandler(db).UpdateProduct)
+		router.GET("/api/v1/products/:id", NewProductHandler(db).GetProductById)
 		router.POST("/api/v1/upload", NewUploadHandler(db).UploadImage)
 
 		// Admin Route
