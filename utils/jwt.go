@@ -63,3 +63,7 @@ func GenerateSecureToken(length int) (string, error) {
 	}
 	return hex.EncodeToString(bytes), nil
 }
+
+func GenerateRefreshToken() (string, error) {
+	return GenerateSecureToken(32)
+}

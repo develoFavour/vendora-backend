@@ -32,6 +32,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		router.POST("/api/v1/auth/register", NewAuthHandler(db).CreateUser)
 		router.POST("/api/v1/auth/verify/:token", NewAuthHandler(db).VerifyEmail)
 		router.POST("/api/v1/auth/login", NewAuthHandler(db).LoginUser)
+		router.POST("/api/v1/auth/refresh-token", NewAuthHandler(db).RefreshToken)
 		router.POST("/api/v1/auth/forgot-password", NewAuthHandler(db).ForgotPassword)
 		router.POST("/api/v1/auth/reset-password", NewAuthHandler(db).ResetPassword)
 		router.POST("/api/v1/onboarding/interests", NewOnboardingHandler(db).ClientUpdateInterest)
@@ -44,6 +45,18 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		router.POST("/api/v1/onboarding/seller/business-category", NewOnboardingHandler(db).SellerBusinessCategory)
 		router.POST("/api/v1/onboarding/seller/business-details", NewOnboardingHandler(db).SellerBusinessInfo)
 		router.POST("/api/v1/onboarding/seller/store-details", NewOnboardingHandler(db).StoreDetails)
+		router.POST("/api/v1/onboarding/seller/verification", NewOnboardingHandler(db).SellerVerification)
+
+		// Product & Media Routes
+		router.POST("/api/v1/products", NewProductHandler(db).CreateProduct)
+		router.GET("/api/v1/products", NewProductHandler(db).GetVendorProducts)
+		router.PUT("/api/v1/products/:id", NewProductHandler(db).UpdateProduct)
+		router.POST("/api/v1/upload", NewUploadHandler(db).UploadImage)
+
+		// Admin Route
+		// Category Routes
+		router.POST("/api/v1/categories", NewCategoryHandler(db).CreateProductCategory)
+		router.GET("/api/v1/categories", NewCategoryHandler(db).GetAllProductCategories)
 
 	} else {
 		logrus.Warn("Database not connected - running with limited functionality")

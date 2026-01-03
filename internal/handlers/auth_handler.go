@@ -98,6 +98,25 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	refreshToken, err := utils.GenerateRefreshToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to generate refreshToken"))
+		return
+	}
+
+	refreshTokenExpiry := time.Now().Add(7 * 24 * time.Hour) // 7 days
+	update := bson.M{
+		"$set": bson.M{
+			"refreshToken":       refreshToken,
+			"refreshTokenExpiry": refreshTokenExpiry,
+		},
+	}
+
+	if _, err := collection.UpdateOne(ctx, bson.M{"_id": newUser.ID}, update); err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to save refresh token"))
+		return
+	}
+
 	response := gin.H{
 		"message": "User created successfully",
 		"user": gin.H{
@@ -106,8 +125,9 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 			"name":  newUser.Name,
 			"email": newUser.Email,
 		},
-		"accessToken": accessToken,
-		"isVerified":  newUser.IsVerified,
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+		"isVerified":   newUser.IsVerified,
 	}
 	c.JSON(http.StatusCreated, utils.SuccessResponse("User Created Successfully", response))
 
@@ -233,6 +253,25 @@ func (h *AuthHandler) LoginUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to generate token"))
 		return
 	}
+
+	refreshToken, err := utils.GenerateRefreshToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to generate refresh token"))
+		return
+	}
+
+	refreshTokenExpiry := time.Now().Add(7 * 24 * time.Hour) // 7 days
+	update := bson.M{
+		"$set": bson.M{
+			"refreshToken":       refreshToken,
+			"refreshTokenExpiry": refreshTokenExpiry,
+		},
+	}
+
+	if _, err := collection.UpdateOne(ctx, bson.M{"_id": user.ID}, update); err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to save refresh token"))
+		return
+	}
 	res := gin.H{
 		"success": true,
 		"user": gin.H{
@@ -241,7 +280,8 @@ func (h *AuthHandler) LoginUser(c *gin.Context) {
 			"address": user.Address,
 			"role":    user.Role,
 		},
-		"accessToken": token,
+		"accessToken":  token,
+		"refreshToken": refreshToken,
 	}
 	c.JSON(http.StatusAccepted, utils.SuccessResponse("Login Successfull", res))
 }
@@ -385,4 +425,55 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, utils.SuccessResponse("Password updated successfully", response))
 
+}
+
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	var input struct {
+		RefreshToken string `json:"refreshToken" validate:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if err := validate.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse(err.Error()))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	collection := h.DB.Collection("users")
+	filter := bson.M{"refreshToken": input.RefreshToken}
+
+	var user models.User
+	if err := collection.FindOne(ctx, filter).Decode(&user); err != nil {
+		c.JSON(http.StatusUnauthorized, utils.ErrorResponse("Invalid refresh token"))
+		return
+	}
+
+	if time.Now().After(user.RefreshTokenExpiry) {
+		c.JSON(http.StatusUnauthorized, utils.ErrorResponse("Refresh token expired"))
+		return
+	}
+
+	accessToken, err := utils.GenerateToken(user.ID.Hex(), user.Role, 24*time.Hour)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to generate access token"))
+		return
+	}
+
+	response := gin.H{
+		"accessToken": accessToken,
+		"user": gin.H{
+			"id":    user.ID.Hex(),
+			"role":  user.Role,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Token refreshed successfully", response))
 }

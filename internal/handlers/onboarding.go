@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -661,5 +662,378 @@ func (h *OnboardingHandler) StoreDetails(c *gin.Context) {
 			"primaryColor":     primaryColor,
 			"accentColor":      accentColor,
 		},
+	}))
+}
+func (h *OnboardingHandler) CalculateTier1RiskScore(user *models.User, application *models.SellerApplication) models.RiskScore {
+	score := 0
+	var flags []string
+
+	// 1. Email quality checks (25 points max)
+	if utils.IsDisposableEmail(user.Email) {
+		score += 25
+		flags = append(flags, "Disposable email domain detected")
+	}
+
+	// 2. Account age checks (35 points max)
+	accountAge := time.Since(user.CreatedAt)
+	if accountAge < 1*time.Hour {
+		score += 30 // Ultra-new account - almost certainly needs review
+		flags = append(flags, "Account created < 1 hour ago")
+	} else if accountAge < 24*time.Hour {
+		score += 15
+		flags = append(flags, "Account created < 24 hours ago")
+	}
+
+	// 3. Document Quality & Validation (30 points max)
+	if application.IDDocument != nil {
+		// Suspiciously small files often indicate low-quality/placeholder images
+		if application.IDDocument.FileSize < 150*1024 { // Increased to 150KB
+			score += 15
+			flags = append(flags, "Low resolution or suspicious document size")
+		}
+
+		ext := strings.ToLower(application.IDDocument.ContentType)
+		if ext != "image/jpeg" && ext != "image/png" && ext != "application/pdf" {
+			score += 20 // Higher penalty for weird formats
+			flags = append(flags, "Non-standard document format")
+		}
+	}
+
+	// 4. Contextual Consistency (20 points max)
+	// Check if the business location matches the user's previously provided profile location
+	if user.Profile != nil && application.BusinessDetails != nil {
+		if !strings.EqualFold(user.Profile.Location, application.BusinessDetails.Location) {
+			score += 10
+			flags = append(flags, "Location mismatch with profile")
+		}
+	}
+
+	// 5. Store Metadata Checks (15 points max)
+	if len(application.StoreName) < 4 {
+		score += 10
+		flags = append(flags, "Unusually short store name")
+	}
+
+	// Check for "Bot-like" behavior: If they submitted instantly after creating account
+	if application.AppliedAt.Sub(user.CreatedAt) < 10*time.Minute {
+		score += 20
+		flags = append(flags, "Rapid application submission (bot risk)")
+	}
+
+	return models.RiskScore{
+		Total:     score,
+		Threshold: 35, // Adjusted threshold for auto-approval
+		Flags:     flags,
+	}
+}
+func (h *OnboardingHandler) MakeApprovalDecision(score models.RiskScore) models.ApprovalDecision {
+	// 0-35: Trusted / Low Risk (Safe for Auto-Approve)
+	if score.Total < 35 {
+		return models.ApprovalDecision{
+			Action: "AUTO_APPROVE",
+			Reason: "Low risk profile - automated approval granted",
+			Score:  score.Total,
+		}
+	}
+
+	// 35-65: Suspicious / Medium Risk (Requires Human Review)
+	if score.Total >= 35 && score.Total < 65 {
+		return models.ApprovalDecision{
+			Action: "MANUAL_REVIEW",
+			Reason: "Elevated risk flags - queued for manual review",
+			Score:  score.Total,
+		}
+	}
+
+	// 65+: High Risk (Auto-Reject to protect platform)
+	return models.ApprovalDecision{
+		Action: "REJECT",
+		Reason: "High risk profile - automated rejection based on security policy",
+		Score:  score.Total,
+	}
+}
+func (h *OnboardingHandler) processDocumentUpload(form *multipart.Form, fieldName string) *models.VerificationDocument {
+	headers, ok := form.File[fieldName]
+	if !ok || len(headers) == 0 {
+		return nil
+	}
+	header := headers[0]
+
+	// Validate file size (5MB max)
+	if header.Size > 5*1024*1024 {
+		return nil
+	}
+
+	// Validate file type
+	allowedTypes := map[string]bool{
+		"image/jpeg":      true,
+		"image/png":       true,
+		"application/pdf": true,
+	}
+
+	if !allowedTypes[header.Header.Get("Content-Type")] {
+		return nil
+	}
+
+	file, err := header.Open()
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	// Upload to Cloudinary
+	uploadResult, err := h.uploadToCloudinary(file, header)
+	if err != nil {
+		return nil
+	}
+
+	return &models.VerificationDocument{
+		FileName:    header.Filename,
+		FileURL:     uploadResult.SecureURL,
+		FileSize:    header.Size,
+		ContentType: header.Header.Get("Content-Type"),
+		UploadedAt:  time.Now(),
+	}
+}
+
+func (h *OnboardingHandler) uploadToCloudinary(file multipart.File, header *multipart.FileHeader) (*uploader.UploadResult, error) {
+	// Use your existing Cloudinary setup from store details upload
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create Cloudinary instance using the same pattern as StoreDetails
+	cld, err := cloudinary.NewFromParams(
+		os.Getenv("CLOUDINARY_CLOUD_NAME"),
+		os.Getenv("CLOUDINARY_API_KEY"),
+		os.Getenv("CLOUDINARY_API_SECRET"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadResult, err := cld.Upload.Upload(ctx, file, uploader.UploadParams{
+		Folder:       "seller-verification",
+		ResourceType: "auto",
+		Format:       "auto",
+	})
+
+	return uploadResult, err
+}
+func (h *OnboardingHandler) SellerVerification(c *gin.Context) {
+	auth := c.GetHeader("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
+		return
+	}
+	claims, err := utils.VerifyToken(strings.TrimPrefix(auth, "Bearer "))
+	if err != nil {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse("Invalid or missing token"))
+		return
+	}
+
+	// Parse form data (documents)
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid form data"))
+		return
+	}
+
+	userID, _ := primitive.ObjectIDFromHex(claims.UserID)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	// 1. Check if user already has a pending or approved application
+	var existingApp models.SellerApplication
+	err = h.DB.Collection("sellerApplications").FindOne(ctx, bson.M{
+		"userID": userID,
+		"status": bson.M{"$in": []string{"pending", "approved", "under_review"}},
+	}).Decode(&existingApp)
+	if err == nil {
+		c.JSON(http.StatusConflict, utils.ErrorResponse("You already have an active application or verified account"))
+		return
+	}
+
+	// 2. Get user data for risk scoring
+	var user models.User
+	if err := h.DB.Collection("users").FindOne(ctx, bson.M{"_id": userID}).Decode(&user); err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("User not found"))
+		return
+	}
+
+	// 3. Get draft data to populate application
+	var draft models.UserOnboardingDraft
+	err = h.DB.Collection("drafts").FindOne(ctx, bson.M{"userID": userID, "role": "vendor"}).Decode(&draft)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Onboarding draft not found. Please complete previous steps."))
+		return
+	}
+
+	// 4. Process uploaded documents
+	idDocument := h.processDocumentUpload(form, "idDocument")
+	if idDocument == nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("ID document required"))
+		return
+	}
+	selfieDoc := h.processDocumentUpload(form, "selfieVerification")
+
+	// 5. Build SellerApplication from draft and uploads
+	application := &models.SellerApplication{
+		ID:                 primitive.NewObjectID(),
+		UserID:             userID,
+		RequestedTier:      "individual", // Default
+		IDDocument:         idDocument,
+		SelfieVerification: selfieDoc,
+		Status:             "pending",
+		AppliedAt:          time.Now(),
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+	}
+
+	// Extract data from draft.StepData with safety
+	if busInfo, ok := draft.StepData["businessInfo"].(map[string]interface{}); ok {
+		application.BusinessTypeInfo = &models.SellerBusinessInfo{}
+		if val, ok := busInfo["requestedTier"].(string); ok {
+			application.RequestedTier = val
+			application.BusinessTypeInfo.RequestedTier = val
+		}
+		if val, ok := busInfo["type"].(string); ok {
+			application.BusinessTypeInfo.BusinessType = val
+		}
+		if val, ok := busInfo["size"].(string); ok {
+			application.BusinessTypeInfo.BusinessSize = val
+		}
+		if val, ok := busInfo["experience"].(string); ok {
+			application.BusinessTypeInfo.BusinessExperience = val
+		}
+
+		if application.BusinessTypeInfo.BusinessType != "" && application.BusinessTypeInfo.BusinessType != "unregistered" {
+			application.IsRegistered = true
+		}
+	}
+
+	if categories, ok := draft.StepData["categories"].([]interface{}); ok {
+		for _, cat := range categories {
+			if s, ok := cat.(string); ok {
+				application.Categories = append(application.Categories, s)
+			}
+		}
+	}
+
+	if busDetails, ok := draft.StepData["businessDetails"].(map[string]interface{}); ok {
+		application.BusinessDetails = &models.BusinessDetails{}
+		if val, ok := busDetails["businessName"].(string); ok {
+			application.BusinessDetails.BusinessName = val
+		}
+		if val, ok := busDetails["description"].(string); ok {
+			application.BusinessDetails.Description = val
+		}
+		if val, ok := busDetails["location"].(string); ok {
+			application.BusinessDetails.Location = val
+		}
+		if val, ok := busDetails["url"].(string); ok {
+			application.BusinessDetails.Url = val
+		}
+
+		application.StoreName = application.BusinessDetails.BusinessName
+	}
+
+	if storeDetails, ok := draft.StepData["storeDetails"].(map[string]interface{}); ok {
+		application.StoreDetails = &models.StoreDetails{}
+		if val, ok := storeDetails["storeLogo"].(string); ok {
+			application.StoreDetails.StoreLogo = val
+		}
+		if val, ok := storeDetails["storeName"].(string); ok {
+			application.StoreDetails.StoreName = val
+		}
+		if val, ok := storeDetails["storeDescription"].(string); ok {
+			application.StoreDetails.StoreDescription = val
+		}
+		if val, ok := storeDetails["primaryColor"].(string); ok {
+			application.StoreDetails.PrimaryColor = val
+		}
+		if val, ok := storeDetails["accentColor"].(string); ok {
+			application.StoreDetails.AccentColor = val
+		}
+
+		if application.StoreDetails.StoreName != "" {
+			application.StoreName = application.StoreDetails.StoreName
+		}
+		if application.StoreDetails.StoreDescription != "" {
+			application.StoreDescription = application.StoreDetails.StoreDescription
+		}
+	}
+
+	// 6. Calculate risk score
+	riskScore := h.CalculateTier1RiskScore(&user, application)
+
+	// 7. Make approval decision
+	decision := h.MakeApprovalDecision(riskScore)
+
+	// 8. Update application status based on decision
+	application.RiskScore = riskScore.Total
+	application.RiskFlags = riskScore.Flags
+
+	// Only auto-approve Tier 1 (individual)
+	if application.RequestedTier == "individual" && decision.Action == "AUTO_APPROVE" {
+		application.Status = "approved"
+		application.ApprovedTier = "individual"
+	} else if decision.Action == "REJECT" {
+		application.Status = "rejected"
+		application.RejectionReason = decision.Reason
+	} else {
+		application.Status = "pending" // Requires manual review (Tier 2/3 or Medium/High risk)
+	}
+
+	// 9. Save application
+	_, err = h.DB.Collection("sellerApplications").InsertOne(ctx, application)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to save application"))
+		return
+	}
+
+	// 10. If approved, create vendor account and update user role
+	if application.Status == "approved" {
+		vendorAccount := &models.VendorAccount{
+			ID:              primitive.NewObjectID(),
+			UserID:          userID,
+			ApplicationID:   application.ID,
+			Tier:            "individual",
+			MaxProducts:     50,
+			MaxMonthlySales: 5000,
+			TransactionFee:  5.0,
+			PayoutHoldDays:  7,
+			Status:          "active",
+			ActivatedAt:     time.Now(),
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+		}
+
+		_, err = h.DB.Collection("vendorAccounts").InsertOne(ctx, vendorAccount)
+		if err == nil {
+			// Update user role and vendor status
+			h.DB.Collection("users").UpdateOne(ctx, bson.M{"_id": userID}, bson.M{
+				"$set": bson.M{
+					"role":         "vendor",
+					"vendorStatus": "approved",
+					"updatedAt":    time.Now(),
+				},
+			})
+		}
+	} else {
+		// Update user vendor status to pending (or rejected)
+		h.DB.Collection("users").UpdateOne(ctx, bson.M{"_id": userID}, bson.M{
+			"$set": bson.M{
+				"vendorStatus": application.Status,
+				"updatedAt":    time.Now(),
+			},
+		})
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Verification processed", gin.H{
+		"applicationID": application.ID,
+		"status":        application.Status,
+		"decision":      decision.Action,
+		"riskScore":     riskScore.Total,
+		"flags":         riskScore.Flags,
 	}))
 }

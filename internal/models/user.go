@@ -28,13 +28,17 @@ type User struct {
 	ResetTokenExpiry time.Time          `json:"-" bson:"resetTokenExpiry,omitempty"`
 	PasswordResetAt  time.Time          `json:"-" bson:"passwordResetAt,omitempty"`
 
-	OnboardingCompleted bool             `json:"onboardingCompleted" bson:"onboardingCompleted"`
-	Preferences         *UserPreferences `json:"preferences" bson:"preferences"`
-	Interests           *UserInterests   `json:"interests" bson:"interests"`
-	Profile             *UserProfile     `json:"profile" bson:"profile"`
-	VendorStatus        string           `json:"vendorStatus" bson:"vendorStatus"` // "", "pending", "approved", "rejected"
+	RefreshToken        string    `json:"-" bson:"refreshToken,omitempty"`
+	RefreshTokenExpiry  time.Time `json:"-" bson:"refreshTokenExpiry,omitempty"`
+	OnboardingCompleted bool      `json:"onboardingCompleted" bson:"onboardingCompleted"`
 
+	Preferences *UserPreferences `json:"preferences" bson:"preferences"`
+	Interests   *UserInterests   `json:"interests" bson:"interests"`
+	Profile     *UserProfile     `json:"profile" bson:"profile"`
+
+	VendorStatus      string             `json:"vendorStatus" bson:"vendorStatus"` // "", "pending", "approved", "rejected"
 	SellerApplication *SellerApplication `json:"sellerApplication" bson:"sellerApplication"`
+	VendorAccount     *VendorAccount     `json:"vendorAccount" bson:"vendorAccount"`
 }
 
 type UserPreferences struct {
@@ -69,7 +73,7 @@ type SellerApplication struct {
 
 	// Basic Info (All Tiers)
 	StoreName        string   `json:"storeName" bson:"storeName" validate:"required,min=2,max=50"`
-	StoreDescription string   `json:"storeDescription" bson:"storeDescription" validate:"required,min=20,max=500"`
+	StoreDescription string   `json:"storeDescription" bson:"storeDescription" validate:"required,min=50,max=500"`
 	Categories       []string `json:"categories" bson:"categories" validate:"required,min=1,max=5"`
 
 	// Business Details
@@ -113,7 +117,7 @@ type VerificationDocument struct {
 	FileURL            string              `json:"fileUrl" bson:"fileUrl"`                               // Cloudinary URL
 	ThumbnailURL       string              `json:"thumbnailUrl,omitempty" bson:"thumbnailUrl,omitempty"` // Cloudinary thumbnail
 	FileSize           int64               `json:"fileSize" bson:"fileSize"`                             // Size in bytes
-	MimeType           string              `json:"mimeType" bson:"mimeType"`                             // "image/jpeg", "image/png", "application/pdf"
+	ContentType        string              `json:"contentType" bson:"contentType"`                       // "image/jpeg", "image/png", "application/pdf"
 	UploadedAt         time.Time           `json:"uploadedAt" bson:"uploadedAt"`
 	VerificationStatus string              `json:"verificationStatus" bson:"verificationStatus"` // "pending", "verified", "rejected"
 	VerifiedAt         *time.Time          `json:"verifiedAt,omitempty" bson:"verifiedAt,omitempty"`
@@ -121,6 +125,7 @@ type VerificationDocument struct {
 	RejectionReason    string              `json:"rejectionReason,omitempty" bson:"rejectionReason,omitempty"`
 }
 type SellerBusinessInfo struct {
+	RequestedTier      string `json:"requestedTier" bson:"requestedTier" validate:"required,oneof=individual verified business"`
 	BusinessType       string `json:"type" bson:"type" validate:"required,oneof=unregistered sole-proprietor partnership llc corporation nonprofit"`
 	BusinessSize       string `json:"size" bson:"size" validate:"required,oneof=just_me 2-10 11-50 51-100 101+"`
 	BusinessExperience string `json:"experience" bson:"experience" validate:"required,oneof=0-6months 6months-2years 2years-5years 5years-10years 10years+"`
@@ -164,7 +169,7 @@ type VendorAccount struct {
 	ID            primitive.ObjectID `bson:"_id,omitempty"`
 	UserID        primitive.ObjectID `bson:"userID"`
 	ApplicationID primitive.ObjectID `bson:"applicationID"`
-
+	CreatedAt     time.Time          `json:"createdAt" bson:"createdAt"`
 	// Tier & Limits
 	Tier           string     `json:"tier" bson:"tier"` // "individual", "verified", "business"
 	TierUpgradedAt *time.Time `json:"tierUpgradedAt,omitempty" bson:"tierUpgradedAt,omitempty"`
@@ -210,4 +215,15 @@ type SocialMediaLink struct {
 	Handle   string `json:"handle" bson:"handle"`
 	URL      string `json:"url" bson:"url"`
 	Verified bool   `json:"verified" bson:"verified"`
+}
+
+type RiskScore struct {
+	Total     int      `json:"total"`
+	Threshold int      `json:"threshold"`
+	Flags     []string `json:"flags"`
+}
+type ApprovalDecision struct {
+	Action string `json:"action"` // "AUTO_APPROVE", "MANUAL_REVIEW", "REJECT"
+	Reason string `json:"reason"`
+	Score  int    `json:"score"`
 }

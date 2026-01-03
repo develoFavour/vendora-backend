@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -83,4 +84,23 @@ func SendEmail(to, subject, body string) error {
 	}
 
 	return nil
+}
+func IsDisposableEmail(email string) bool {
+	disposableDomains := []string{
+		"10minutemail.com", "tempmail.org", "guerrillamail.com",
+		"mailinator.com", "yopmail.com", "temp-mail.org",
+	}
+
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return true
+	}
+
+	domain := strings.ToLower(parts[1])
+	for _, disposable := range disposableDomains {
+		if strings.Contains(domain, disposable) {
+			return true
+		}
+	}
+	return false
 }

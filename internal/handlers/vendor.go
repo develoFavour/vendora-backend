@@ -27,18 +27,18 @@ var vendorValidator = validator.New()
 
 // VendorApplication represents the vendor application data
 type VendorApplication struct {
-	BusinessName    string `json:"businessName" validate:"required,min=2,max=100"`
-	BusinessType    string `json:"businessType" validate:"required"`
-	BusinessDescription string `json:"businessDescription" validate:"required,min=10,max=500"`
-	ContactEmail    string `json:"contactEmail" validate:"required,email"`
-	ContactPhone    string `json:"contactPhone" validate:"required,min=10,max=15"`
-	BusinessAddress string `json:"businessAddress" validate:"required,min=10,max=200"`
-	TaxID           string `json:"taxId,omitempty"`
-	Website         string `json:"website,omitempty"`
-	SocialMedia     []string `json:"socialMedia,omitempty"`
-	Products        []string `json:"products" validate:"required,min=1"`
-	Experience      string `json:"experience" validate:"required,min=10,max=300"`
-	Motivation      string `json:"motivation" validate:"required,min=10,max=300"`
+	BusinessName        string   `json:"businessName" validate:"required,min=2,max=100"`
+	BusinessType        string   `json:"businessType" validate:"required"`
+	BusinessDescription string   `json:"businessDescription" validate:"required,min=10,max=500"`
+	ContactEmail        string   `json:"contactEmail" validate:"required,email"`
+	ContactPhone        string   `json:"contactPhone" validate:"required,min=10,max=15"`
+	BusinessAddress     string   `json:"businessAddress" validate:"required,min=10,max=200"`
+	TaxID               string   `json:"taxId,omitempty"`
+	Website             string   `json:"website,omitempty"`
+	SocialMedia         []string `json:"socialMedia,omitempty"`
+	Products            []string `json:"products" validate:"required,min=1"`
+	Experience          string   `json:"experience" validate:"required,min=10,max=300"`
+	Motivation          string   `json:"motivation" validate:"required,min=10,max=300"`
 }
 
 // ApplyForVendor handles vendor application submissions

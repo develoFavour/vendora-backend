@@ -16,7 +16,7 @@ tmp/
 *.out
 
 # Dependency directories
-vendor/
+/vendor/
 
 # IDE files
 .vscode/
