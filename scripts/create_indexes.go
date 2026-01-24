@@ -18,7 +18,7 @@ func main() {
 	defer cancel()
 
 	// Connect to MongoDB Atlas
-	mongoURI := "mongodb+srv://vendora:jebCkbDHuCgbvyCy@cluster0.um23o.mongodb.net/"
+	mongoURI := "mongodbURI"
 	clientOptions := options.Client().ApplyURI(mongoURI).SetServerSelectionTimeout(30 * time.Second)
 
 	log.Println("🔄 Connecting to MongoDB Atlas...")
