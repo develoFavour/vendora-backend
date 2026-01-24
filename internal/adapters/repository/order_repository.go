@@ -18,6 +18,7 @@ type OrderRepository interface {
 	GetOrderById(ctx context.Context, orderID primitive.ObjectID) (models.Order, error)
 	GetOrdersByVendorID(ctx context.Context, vendorID primitive.ObjectID) ([]models.Order, error)
 	UpdateOrderStatus(ctx context.Context, orderID primitive.ObjectID, status models.OrderStatus, trackingNumber string) error
+	GetVendorStats(ctx context.Context, vendorID primitive.ObjectID) (models.VendorStats, error)
 }
 
 type MongoOrderRepository struct {
@@ -200,4 +201,64 @@ func (r *MongoOrderRepository) UpdateOrderStatus(ctx context.Context, orderID pr
 		bson.M{"_id": orderID},
 		bson.M{"$set": updateData})
 	return err
+}
+
+func (r *MongoOrderRepository) GetVendorStats(ctx context.Context, vendorID primitive.ObjectID) (models.VendorStats, error) {
+	orderColl := r.DB.Collection("orders")
+	prodColl := r.DB.Collection("products")
+
+	// 1. Basic Counts & Revenue
+	cursor, err := orderColl.Find(ctx, bson.M{"items.vendorId": vendorID})
+	if err != nil {
+		return models.VendorStats{}, err
+	}
+	defer cursor.Close(ctx)
+
+	var orders []models.Order
+	if err := cursor.All(ctx, &orders); err != nil {
+		return models.VendorStats{}, err
+	}
+
+	stats := models.VendorStats{
+		StatusBreakdown:  make(map[string]int),
+		SalesPerformance: make([]models.DailySales, 0),
+	}
+
+	dailyMap := make(map[string]*models.DailySales)
+
+	for _, order := range orders {
+		stats.TotalOrders++
+		stats.StatusBreakdown[string(order.Status)]++
+
+		vendorTotal := 0.0
+		for _, item := range order.Items {
+			if item.VendorID == vendorID {
+				vendorTotal += item.Subtotal
+			}
+		}
+		stats.TotalRevenue += vendorTotal
+
+		// Sales Performance (Daily)
+		dateStr := order.CreatedAt.Format("2006-01-02")
+		if _, ok := dailyMap[dateStr]; !ok {
+			dailyMap[dateStr] = &models.DailySales{Date: dateStr}
+		}
+		dailyMap[dateStr].Revenue += vendorTotal
+		dailyMap[dateStr].Orders++
+	}
+
+	// Transform daily map to sorted slice (simplified: just convert)
+	for _, v := range dailyMap {
+		stats.SalesPerformance = append(stats.SalesPerformance, *v)
+	}
+
+	if stats.TotalOrders > 0 {
+		stats.AvgOrderValue = stats.TotalRevenue / float64(stats.TotalOrders)
+	}
+
+	// 2. Total Products
+	prodCount, _ := prodColl.CountDocuments(ctx, bson.M{"vendorId": vendorID})
+	stats.TotalProducts = int(prodCount)
+
+	return stats, nil
 }

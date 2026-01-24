@@ -114,6 +114,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			vendorOrders.Use(middleware.RoleMiddleware("vendor", "seller"))
 			{
 				vendorOrders.GET("", orderHandler.GetVendorOrders)
+				vendorOrders.GET("/stats", orderHandler.GetVendorStats)
 				vendorOrders.PUT("/:id/status", orderHandler.UpdateVendorOrderStatus)
 				// For now using the same detail handler, but in future might need specific vendor view
 				vendorOrders.GET("/:id", orderHandler.GetOrderById)

@@ -181,3 +181,19 @@ func (h *OrderHandler) UpdateVendorOrderStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, utils.SuccessResponse("Order status updated", nil))
 }
+
+func (h *OrderHandler) GetVendorStats(c *gin.Context) {
+	userIdStr, _ := c.Get("userId")
+	vendorID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	stats, err := h.Repo.GetVendorStats(ctx, vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch vendor stats"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Vendor stats fetched successfully", gin.H{"stats": stats}))
+}

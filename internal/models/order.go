@@ -56,3 +56,18 @@ type PlaceOrderInput struct {
 	ShippingAddress string `json:"shippingAddress" binding:"required"`
 	PaymentMethod   string `json:"paymentMethod" binding:"required"`
 }
+
+type DailySales struct {
+	Date    string  `json:"date"`
+	Revenue float64 `json:"revenue"`
+	Orders  int     `json:"orders"`
+}
+
+type VendorStats struct {
+	TotalRevenue     float64        `json:"totalRevenue"`
+	TotalOrders      int            `json:"totalOrders"`
+	TotalProducts    int            `json:"totalProducts"`
+	AvgOrderValue    float64        `json:"avgOrderValue"`
+	SalesPerformance []DailySales   `json:"salesPerformance"`
+	StatusBreakdown  map[string]int `json:"statusBreakdown"`
+}
