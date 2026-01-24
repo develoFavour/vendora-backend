@@ -71,3 +71,10 @@ type VendorStats struct {
 	SalesPerformance []DailySales   `json:"salesPerformance"`
 	StatusBreakdown  map[string]int `json:"statusBreakdown"`
 }
+
+type BuyerOverviewStats struct {
+	TotalAcquisitions   int     `json:"totalAcquisitions"`
+	ActiveWishlistCount int     `json:"activeWishlistCount"`
+	TotalSpent          float64 `json:"totalSpent"`
+	LastOrderDate       string  `json:"lastOrderDate"`
+}

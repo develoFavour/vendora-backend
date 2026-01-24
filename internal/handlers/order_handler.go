@@ -237,3 +237,19 @@ func (h *OrderHandler) ConfirmReceipt(c *gin.Context) {
 
 	c.JSON(http.StatusOK, utils.SuccessResponse("Receipt confirmed. Thank you for your acquisition!", nil))
 }
+
+func (h *OrderHandler) GetBuyerOverview(c *gin.Context) {
+	userIdStr, _ := c.Get("userId")
+	userID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	stats, err := h.Repo.GetBuyerStats(ctx, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch buyer overview"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Buyer overview fetched successfully", gin.H{"stats": stats}))
+}

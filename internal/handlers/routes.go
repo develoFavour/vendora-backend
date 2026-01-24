@@ -107,6 +107,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			{
 				orders.POST("", orderHandler.PlaceOrder)
 				orders.GET("", orderHandler.GetUserOrders)
+				orders.GET("/overview", orderHandler.GetBuyerOverview)
 				orders.GET("/:id", orderHandler.GetOrderById)
 				orders.PUT("/:id/confirm-receipt", orderHandler.ConfirmReceipt)
 			}

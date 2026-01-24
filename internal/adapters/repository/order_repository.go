@@ -19,6 +19,7 @@ type OrderRepository interface {
 	GetOrdersByVendorID(ctx context.Context, vendorID primitive.ObjectID) ([]models.Order, error)
 	UpdateOrderStatus(ctx context.Context, orderID primitive.ObjectID, status models.OrderStatus, trackingNumber string) error
 	GetVendorStats(ctx context.Context, vendorID primitive.ObjectID) (models.VendorStats, error)
+	GetBuyerStats(ctx context.Context, userID primitive.ObjectID) (models.BuyerOverviewStats, error)
 }
 
 type MongoOrderRepository struct {
@@ -259,6 +260,51 @@ func (r *MongoOrderRepository) GetVendorStats(ctx context.Context, vendorID prim
 	// 2. Total Products
 	prodCount, _ := prodColl.CountDocuments(ctx, bson.M{"vendorId": vendorID})
 	stats.TotalProducts = int(prodCount)
+
+	return stats, nil
+}
+
+func (r *MongoOrderRepository) GetBuyerStats(ctx context.Context, userID primitive.ObjectID) (models.BuyerOverviewStats, error) {
+	orderColl := r.DB.Collection("orders")
+	wishColl := r.DB.Collection("wishlists")
+
+	// 1. Fetch Orders
+	cursor, err := orderColl.Find(ctx, bson.M{"userId": userID})
+	if err != nil {
+		return models.BuyerOverviewStats{}, err
+	}
+	defer cursor.Close(ctx)
+
+	var orders []models.Order
+	if err := cursor.All(ctx, &orders); err != nil {
+		return models.BuyerOverviewStats{}, err
+	}
+
+	stats := models.BuyerOverviewStats{}
+
+	if len(orders) > 0 {
+		stats.TotalAcquisitions = len(orders)
+		var totalSpent float64
+		var lastOrder time.Time
+
+		for _, o := range orders {
+			totalSpent += o.Total
+			if o.CreatedAt.After(lastOrder) {
+				lastOrder = o.CreatedAt
+			}
+		}
+		stats.TotalSpent = totalSpent
+		stats.LastOrderDate = lastOrder.Format("2006-01-02")
+	}
+
+	// 2. Fetch Wishlist Count
+	var wishlist struct {
+		ProductIds []primitive.ObjectID `bson:"productIds"`
+	}
+	err = wishColl.FindOne(ctx, bson.M{"userId": userID}).Decode(&wishlist)
+	if err == nil {
+		stats.ActiveWishlistCount = len(wishlist.ProductIds)
+	}
 
 	return stats, nil
 }
