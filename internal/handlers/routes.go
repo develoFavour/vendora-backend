@@ -109,6 +109,16 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				orders.GET("/:id", orderHandler.GetOrderById)
 			}
 
+			// Vendor Order Routes
+			vendorOrders := protected.Group("/vendor/orders")
+			vendorOrders.Use(middleware.RoleMiddleware("vendor", "seller"))
+			{
+				vendorOrders.GET("", orderHandler.GetVendorOrders)
+				vendorOrders.PUT("/:id/status", orderHandler.UpdateVendorOrderStatus)
+				// For now using the same detail handler, but in future might need specific vendor view
+				vendorOrders.GET("/:id", orderHandler.GetOrderById)
+			}
+
 			// Wishlist Routes
 			wishlistHandler := NewWishlistHandler(db)
 			wishlists := protected.Group("/wishlist")

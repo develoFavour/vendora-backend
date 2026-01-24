@@ -16,6 +16,8 @@ type OrderRepository interface {
 	PlaceOrder(ctx context.Context, userID primitive.ObjectID, input models.PlaceOrderInput, cart models.Cart) (models.Order, error)
 	GetOrdersByUserID(ctx context.Context, userID primitive.ObjectID) ([]models.Order, error)
 	GetOrderById(ctx context.Context, orderID primitive.ObjectID) (models.Order, error)
+	GetOrdersByVendorID(ctx context.Context, vendorID primitive.ObjectID) ([]models.Order, error)
+	UpdateOrderStatus(ctx context.Context, orderID primitive.ObjectID, status models.OrderStatus, trackingNumber string) error
 }
 
 type MongoOrderRepository struct {
@@ -164,4 +166,38 @@ func (r *MongoOrderRepository) GetOrderById(ctx context.Context, orderID primiti
 	var order models.Order
 	err := collection.FindOne(ctx, bson.M{"_id": orderID}).Decode(&order)
 	return order, err
+}
+
+func (r *MongoOrderRepository) GetOrdersByVendorID(ctx context.Context, vendorID primitive.ObjectID) ([]models.Order, error) {
+	collection := r.DB.Collection("orders")
+	// Find orders where at least one item belongs to this vendor
+	cursor, err := collection.Find(ctx, bson.M{"items.vendorId": vendorID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var orders []models.Order
+	if err := cursor.All(ctx, &orders); err != nil {
+		return nil, err
+	}
+	return orders, nil
+}
+
+func (r *MongoOrderRepository) UpdateOrderStatus(ctx context.Context, orderID primitive.ObjectID, status models.OrderStatus, trackingNumber string) error {
+	collection := r.DB.Collection("orders")
+
+	updateData := bson.M{
+		"status":    status,
+		"updatedAt": time.Now(),
+	}
+
+	if trackingNumber != "" {
+		updateData["trackingNumber"] = trackingNumber
+	}
+
+	_, err := collection.UpdateOne(ctx,
+		bson.M{"_id": orderID},
+		bson.M{"$set": updateData})
+	return err
 }

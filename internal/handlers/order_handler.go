@@ -97,10 +97,87 @@ func (h *OrderHandler) GetOrderById(c *gin.Context) {
 		return
 	}
 
-	if order.UserID != userID {
+	isBuyer := order.UserID == userID
+	isVendor := false
+	for _, item := range order.Items {
+		if item.VendorID == userID {
+			isVendor = true
+			break
+		}
+	}
+
+	if !isBuyer && !isVendor {
 		c.JSON(http.StatusForbidden, utils.ErrorResponse("You do not have permission to view this order"))
 		return
 	}
 
 	c.JSON(http.StatusOK, utils.SuccessResponse("Order fetched successfully", gin.H{"order": order}))
+}
+
+func (h *OrderHandler) GetVendorOrders(c *gin.Context) {
+	userIdStr, _ := c.Get("userId")
+	vendorID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	orders, err := h.Repo.GetOrdersByVendorID(ctx, vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch vendor orders"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Vendor orders fetched successfully", gin.H{"orders": orders}))
+}
+
+func (h *OrderHandler) UpdateVendorOrderStatus(c *gin.Context) {
+	id := c.Param("id")
+	orderID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid order ID"))
+		return
+	}
+
+	var input struct {
+		Status         models.OrderStatus `json:"status" binding:"required"`
+		TrackingNumber string             `json:"trackingNumber"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid status provided"))
+		return
+	}
+
+	userIdStr, _ := c.Get("userId")
+	vendorID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// 1. Verify existence and vendor ownership of at least one item
+	order, err := h.Repo.GetOrderById(ctx, orderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("Order not found"))
+		return
+	}
+
+	belongsToVendor := false
+	for _, item := range order.Items {
+		if item.VendorID == vendorID {
+			belongsToVendor = true
+			break
+		}
+	}
+
+	if !belongsToVendor {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse("You do not have permission to update this order"))
+		return
+	}
+
+	// 2. Update status
+	if err := h.Repo.UpdateOrderStatus(ctx, orderID, input.Status, input.TrackingNumber); err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to update status"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Order status updated", nil))
 }
