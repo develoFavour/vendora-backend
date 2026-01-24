@@ -198,11 +198,6 @@ func (h *OnboardingHandler) CompleteOnboardingFlow(c *gin.Context) {
 		return
 	}
 
-	if err != nil {
-		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid user ID"))
-		return
-	}
-
 	collection := h.DB.Collection("users")
 	filter := bson.M{"_id": objectId}
 

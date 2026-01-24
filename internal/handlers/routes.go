@@ -106,6 +106,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			{
 				orders.POST("", orderHandler.PlaceOrder)
 				orders.GET("", orderHandler.GetUserOrders)
+				orders.GET("/:id", orderHandler.GetOrderById)
 			}
 
 			// Wishlist Routes
@@ -116,6 +117,16 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				wishlists.DELETE("/:id", wishlistHandler.RemoveFromWishlist)
 				wishlists.GET("", wishlistHandler.GetWishlist)
 			}
+
+			// Payment Routes
+			paymentHandler := NewPaymentHandler(db)
+			payments := protected.Group("/payments")
+			{
+				payments.POST("/create-intent", paymentHandler.CreatePaymentIntent)
+			}
+
+			// Public Webhook
+			router.POST("/api/v1/payments/webhook", paymentHandler.HandleWebhook)
 
 			// Cart Routes
 			cartHandler := NewCartHandler(db)

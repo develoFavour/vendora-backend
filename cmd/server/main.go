@@ -13,6 +13,10 @@ import (
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		logrus.Info("No .env file found (using environment variables)")
+	}
+
 	logrus.Info("Starting server...")
 	gin.SetMode(gin.DebugMode)
 	logrus.SetLevel(logrus.InfoLevel)
@@ -28,19 +32,17 @@ func main() {
 
 	logrus.Info("Setting up Gin router...")
 	router := gin.Default()
-	logrus.Info("Calling handlers.SetupRoutes...")
+
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "https://your-frontend-url.vercel.app"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
+
+	logrus.Info("Calling handlers.SetupRoutes...")
 	handlers.SetupRoutes(router, db)
 
-	logrus.Info("Loading environment variables...")
-	if err := godotenv.Load(); err != nil {
-		logrus.Info("No .env file found (using environment variables)")
-	}
 	PORT := os.Getenv("PORT")
 	if PORT == "" {
 		PORT = "8080"
