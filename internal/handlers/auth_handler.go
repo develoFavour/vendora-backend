@@ -61,7 +61,7 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 		Phone:      user.Phone,
 		Address:    user.Address,
 		Password:   string(hashedPassword),
-		Role:       "customer",
+		Role:       "buyer",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 		IsVerified: false,

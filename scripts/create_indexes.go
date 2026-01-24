@@ -89,6 +89,29 @@ func main() {
 		log.Println("✅ Created unique index: idx_seo_slug on products.seo.slug")
 	}
 
+	_, err = productsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "name", Value: "text"}},
+		Options: options.Index().SetName("idx_text_index"),
+	})
+	if err != nil {
+		log.Printf("Failed to create idx_text_index index: %v", err)
+	} else {
+		log.Println("✅ Created unique index: idx_text_index on products")
+	}
+	_, err = productsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "status", Value: 1},
+			{Key: "categoryId", Value: 1},
+			{Key: "createdAt", Value: -1},
+		},
+		Options: options.Index().SetName("idx_status_category_createdAt"),
+	})
+	if err != nil {
+		log.Printf("Failed to create text_index index: %v", err)
+	} else {
+		log.Println("✅ Created unique index: idx_status_category_createdAt on products")
+	}
+
 	// ========================================
 	// VENDOR_ACCOUNTS COLLECTION INDEXES
 	// ========================================

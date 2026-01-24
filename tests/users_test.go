@@ -14,7 +14,7 @@ func TestJSON_Marshall_User_Struct(t *testing.T) {
 		Email:    "favour@gmail.com",
 		Phone:    "07027262819",
 		Password: "favour1234",
-		Role:     "customer",
+		Role:     "buyer",
 	}
 
 	jsonData, err := json.Marshal(user)

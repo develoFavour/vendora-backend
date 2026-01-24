@@ -7,24 +7,29 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/developia-II/ecommerce-backend/internal/adapters/repository"
 	"github.com/developia-II/ecommerce-backend/internal/models"
 	"github.com/developia-II/ecommerce-backend/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type ProductHandler struct {
-	DB *mongo.Database
+	Repo repository.ProductRepository
+	DB   *mongo.Database // Kept for legacy methods until full refactor
 }
 
-func NewProductHandler(db *mongo.Database) *ProductHandler {
-	return &ProductHandler{DB: db}
+func NewProductHandler(db *mongo.Database, repo repository.ProductRepository) *ProductHandler {
+	return &ProductHandler{
+		Repo: repo,
+		DB:   db,
+	}
 }
+
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
-	// Get user info from context (set by AuthMiddleware)
+
 	userIdStr, _ := c.Get("userId")
 	role, _ := c.Get("role")
 
@@ -66,49 +71,15 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	product.CreatedAt = time.Now()
 	product.UpdatedAt = time.Now()
 
-	// Start MongoDB transaction for atomic operation
-	session, err := h.DB.Client().StartSession()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to start transaction"))
-		return
-	}
-	defer session.EndSession(ctx)
-
-	// Transaction callback - both operations succeed or both fail
-	callback := func(sessCtx mongo.SessionContext) (interface{}, error) {
-		// 1. Insert product
-		collection := h.DB.Collection("products")
-		res, err := collection.InsertOne(sessCtx, product)
-		if err != nil {
-			return nil, err
-		}
-		product.ID = res.InsertedID.(primitive.ObjectID)
-
-		// 2. Update vendor count atomically
-		vendorColl := h.DB.Collection("vendorAccounts")
-		update := bson.M{
-			"$inc": bson.M{"productCount": 1},
-			"$set": bson.M{"updatedAt": time.Now()},
-		}
-		_, err = vendorColl.UpdateOne(sessCtx, bson.M{"userID": userId}, update)
-		if err != nil {
-			return nil, err
-		}
-
-		return product, nil
-	}
-
-	// Execute transaction with automatic retry on transient errors
-	result, err := session.WithTransaction(ctx, callback)
+	createdProduct, err := h.Repo.CreateProduct(ctx, product)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to create product"))
 		return
 	}
 
-	product = result.(models.Product)
 	c.JSON(http.StatusCreated, utils.SuccessResponse("Product created successfully", gin.H{
 		"success": true,
-		"product": product,
+		"product": createdProduct,
 	}))
 }
 
@@ -132,7 +103,7 @@ func (h *ProductHandler) GetVendorProducts(c *gin.Context) {
 	pageConv, _ := strconv.Atoi(page)
 	convLimit, _ := strconv.ParseInt(limit, 10, 64)
 	skip := (pageConv - 1) * int(convLimit)
-	collection := h.DB.Collection("products")
+
 	vendorID, err := primitive.ObjectIDFromHex(userIdStr.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("invalid or missing token"))
@@ -143,28 +114,13 @@ func (h *ProductHandler) GetVendorProducts(c *gin.Context) {
 	if searchTerm != "" {
 		filter["name"] = bson.M{"$regex": searchTerm, "$options": "i"}
 	}
-	opts := options.Find().SetSkip(int64(skip)).SetLimit(convLimit).SetSort(bson.M{"createdAt": -1})
 
-	cursor, err := collection.Find(c.Request.Context(), filter, opts)
+	products, total, err := h.Repo.GetVendorProducts(ctx, filter, convLimit, int64(skip))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to fetch products"))
 		return
 	}
-	products := []models.Product{}
-	defer cursor.Close(c.Request.Context())
-	for cursor.Next(c.Request.Context()) {
-		var product models.Product
-		if err := cursor.Decode(&product); err != nil {
-			c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to decode product"))
-			return
-		}
-		products = append(products, product)
-	}
-	total, err := collection.CountDocuments(ctx, filter)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to count documents"))
-		return
-	}
+
 	res := gin.H{
 		"products": products,
 		"total":    total,
@@ -198,10 +154,9 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	defer cancel()
 
 	vendorId, err := primitive.ObjectIDFromHex(userIdStr.(string))
-	var existingProduct models.Product
 
-	collections := h.DB.Collection("products")
-	if err := collections.FindOne(ctx, bson.M{"_id": productId}).Decode(&existingProduct); err != nil {
+	existingProduct, err := h.Repo.GetProduct(ctx, bson.M{"_id": productId})
+	if err != nil {
 		c.JSON(http.StatusNotFound, utils.ErrorResponse("product doesn't exist"))
 		return
 	}
@@ -209,17 +164,17 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusForbidden, utils.ErrorResponse("You do not have permission to update this product"))
 		return
 	}
-	filter := bson.M{"vendorId": vendorId, "_id": productId}
 
+	filter := bson.M{"vendorId": vendorId, "_id": productId}
 	input.UpdatedAt = time.Now()
-	update := bson.M{"$set": input}
-	result, err := collections.UpdateOne(ctx, filter, update)
+
+	updated, err := h.Repo.UpdateProduct(ctx, filter, input)
 	if err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to update product"))
 		return
 	}
-	if result.MatchedCount == 0 {
+	if !updated {
 		c.JSON(http.StatusNotFound, utils.ErrorResponse("product not found or unauthorized"))
 		return
 	}
@@ -234,14 +189,22 @@ func (h *ProductHandler) GetProductById(c *gin.Context) {
 		return
 	}
 
+	// Get user info from context (set by AuthMiddleware)
+	userIdStr, _ := c.Get("userId")
+	vendorID, err := primitive.ObjectIDFromHex(userIdStr.(string))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, utils.ErrorResponse("Unauthorized"))
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	filter := bson.M{"_id": productId}
-	collection := h.DB.Collection("products")
-	var product models.Product
-	if err := collection.FindOne(ctx, filter).Decode(&product); err != nil {
-		c.JSON(http.StatusNotFound, utils.ErrorResponse("product not found"))
+	// Ensure product belongs to the vendor
+	filter := bson.M{"_id": productId, "vendorId": vendorID}
+	product, err := h.Repo.GetProduct(ctx, filter)
+	if err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("product not found or unauthorized"))
 		return
 	}
 
@@ -271,38 +234,90 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("invalid token claims"))
 		return
 	}
-	filter := bson.M{"_id": productId, "vendorId": vendorId}
 
-	session, err := h.DB.Client().StartSession()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to start session"))
-		return
-	}
-	defer session.EndSession(ctx)
-
-	callback := func(sessCtx mongo.SessionContext) (interface{}, error) {
-		collection := h.DB.Collection("products")
-		res, err := collection.DeleteOne(sessCtx, filter)
-		if err != nil {
-			return nil, err
-		}
-		if res.DeletedCount == 0 {
-			return nil, fmt.Errorf("product not found or unauthorized")
-		}
-
-		vendorAcc := h.DB.Collection("vendorAccounts")
-		_, err = vendorAcc.UpdateOne(sessCtx, bson.M{"userID": vendorId}, bson.M{"$inc": bson.M{"productCount": -1}})
-		if err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-
-	_, err = session.WithTransaction(ctx, callback)
+	err = h.Repo.DeleteProduct(ctx, productId, vendorId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse(err.Error()))
 		return
 	}
 
 	c.JSON(http.StatusOK, utils.SuccessResponse("product deleted successfully", gin.H{}))
+}
+
+func (h *ProductHandler) FetchProductsPublic(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	searchTerm := c.Query("query")
+	category := c.Query("category")
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "12"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 12
+	}
+
+	filter := h.buildProductFilter(searchTerm, category)
+	pageSkip := (page - 1) * limit
+
+	products, total, err := h.Repo.FetchProductsPublic(ctx, filter, limit, pageSkip)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to fetch products"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Collection retrieved", gin.H{
+		"products": products,
+		"meta": gin.H{
+			"total": total,
+			"page":  page,
+			"limit": limit,
+		},
+	}))
+}
+func (h *ProductHandler) FetchProductsPublicById(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid or missing id"))
+		return
+	}
+	productId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid or missing id"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+	filter := bson.M{"_id": productId, "status": "active"}
+	product, err := h.Repo.FetchProductsPublicById(ctx, filter)
+	if err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
+
+}
+
+func (h *ProductHandler) buildProductFilter(query, category string) bson.M {
+	filter := bson.M{
+		"status": "active",
+	}
+
+	if query != "" {
+		filter["$text"] = bson.M{"$search": query}
+	}
+
+	if category != "" {
+
+		if catID, err := primitive.ObjectIDFromHex(category); err == nil {
+			filter["categoryId"] = catID
+		}
+	}
+
+	return filter
 }

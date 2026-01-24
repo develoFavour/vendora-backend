@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/developia-II/ecommerce-backend/internal/adapters/repository"
 	"github.com/developia-II/ecommerce-backend/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -32,7 +33,8 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		logrus.Info("Database connected - setting up database routes")
 		authHandler := NewAuthHandler(db)
 		onboardingHandler := NewOnboardingHandler(db)
-		productHandler := NewProductHandler(db)
+		productRepo := repository.NewProductRepository(db)
+		productHandler := NewProductHandler(db, productRepo)
 		categoryHandler := NewCategoryHandler(db)
 		uploadHandler := NewUploadHandler(db)
 
@@ -46,6 +48,13 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			authGroup.POST("/forgot-password", authHandler.ForgotPassword)
 			authGroup.POST("/reset-password", authHandler.ResetPassword)
 			authGroup.POST("/resend/:token", authHandler.ResendVerification)
+		}
+
+		// Public Product Routes
+		publicProductGroup := router.Group("/api/v1/public/products")
+		{
+			publicProductGroup.GET("", productHandler.FetchProductsPublic)
+			publicProductGroup.GET("/:id", productHandler.FetchProductsPublicById)
 		}
 
 		// Protected Routes
@@ -81,18 +90,52 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				products.DELETE("/:id", productHandler.DeleteProduct)
 			}
 
-			// Media Routes
-			protected.POST("/upload", uploadHandler.UploadImage)
-
 			// Category Routes
 			categories := protected.Group("/categories")
 			{
 				categories.POST("", middleware.RoleMiddleware("admin"), categoryHandler.CreateProductCategory)
 				categories.GET("", categoryHandler.GetAllProductCategories)
 			}
+
+			// Media Routes
+			protected.POST("/upload", uploadHandler.UploadImage)
+
+			// Order Routes
+			orderHandler := NewOrderHandler(db)
+			orders := protected.Group("/orders")
+			{
+				orders.POST("", orderHandler.PlaceOrder)
+				orders.GET("", orderHandler.GetUserOrders)
+			}
+
+			// Wishlist Routes
+			wishlistHandler := NewWishlistHandler(db)
+			wishlists := protected.Group("/wishlist")
+			{
+				wishlists.POST("", wishlistHandler.AddToWishlist)
+				wishlists.DELETE("/:id", wishlistHandler.RemoveFromWishlist)
+				wishlists.GET("", wishlistHandler.GetWishlist)
+			}
+
+			// Cart Routes
+			cartHandler := NewCartHandler(db)
+			carts := protected.Group("/cart")
+			{
+				carts.POST("", cartHandler.AddToCart)
+				carts.DELETE("/:id", cartHandler.RemoveFromCart)
+				carts.GET("", cartHandler.GetCart)
+				carts.PUT("/:id", cartHandler.UpdateQuantity)
+				carts.DELETE("", cartHandler.ClearCart)
+			}
 		}
 
 	} else {
 		logrus.Warn("Database not connected - running with limited functionality")
+		router.Any("/api/*path", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   "Database connection not available",
+				"message": "The server is running but could not connect to the database. Please check server logs.",
+			})
+		})
 	}
 }

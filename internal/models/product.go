@@ -44,7 +44,7 @@ type SEO struct {
 
 type Product struct {
 	ID       primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	VendorID primitive.ObjectID `json:"_" bson:"vendorId"`
+	VendorID primitive.ObjectID `json:"-" bson:"vendorId"`
 
 	// Basic Info
 	Name        string `json:"name" bson:"name" validate:"required"`
