@@ -197,3 +197,43 @@ func (h *OrderHandler) GetVendorStats(c *gin.Context) {
 
 	c.JSON(http.StatusOK, utils.SuccessResponse("Vendor stats fetched successfully", gin.H{"stats": stats}))
 }
+
+func (h *OrderHandler) ConfirmReceipt(c *gin.Context) {
+	id := c.Param("id")
+	orderID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid order ID"))
+		return
+	}
+
+	userIdStr, _ := c.Get("userId")
+	userID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// 1. Verify existence and buyer ownership
+	order, err := h.Repo.GetOrderById(ctx, orderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("Order not found"))
+		return
+	}
+
+	if order.UserID != userID {
+		c.JSON(http.StatusForbidden, utils.ErrorResponse("You do not have permission to modify this order"))
+		return
+	}
+
+	if order.Status != models.StatusShipped {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Only shipped orders can be confirmed"))
+		return
+	}
+
+	// 2. Update status to Delivered
+	if err := h.Repo.UpdateOrderStatus(ctx, orderID, models.StatusDelivered, ""); err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to confirm receipt"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Receipt confirmed. Thank you for your acquisition!", nil))
+}

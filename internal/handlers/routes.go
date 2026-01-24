@@ -39,7 +39,8 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		uploadHandler := NewUploadHandler(db)
 
 		// Public Routes
-		authGroup := router.Group("/api/v1/auth")
+		v1Group := router.Group("/api/v1")
+		authGroup := v1Group.Group("/auth")
 		{
 			authGroup.POST("/register", authHandler.CreateUser)
 			authGroup.POST("/verify/:token", authHandler.VerifyEmail)
@@ -107,6 +108,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				orders.POST("", orderHandler.PlaceOrder)
 				orders.GET("", orderHandler.GetUserOrders)
 				orders.GET("/:id", orderHandler.GetOrderById)
+				orders.PUT("/:id/confirm-receipt", orderHandler.ConfirmReceipt)
 			}
 
 			// Vendor Order Routes
@@ -124,9 +126,20 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			wishlistHandler := NewWishlistHandler(db)
 			wishlists := protected.Group("/wishlist")
 			{
-				wishlists.POST("", wishlistHandler.AddToWishlist)
-				wishlists.DELETE("/:id", wishlistHandler.RemoveFromWishlist)
+				wishlists.POST("/add", wishlistHandler.AddToWishlist)
 				wishlists.GET("", wishlistHandler.GetWishlist)
+				wishlists.DELETE("/remove/:productId", wishlistHandler.RemoveFromWishlist)
+			}
+
+			// Review Routes
+			reviewHandler := NewReviewHandler(db)
+			protected.POST("/reviews", reviewHandler.CreateReview)
+
+			vendorReviews := protected.Group("/vendor/reviews")
+			vendorReviews.Use(middleware.RoleMiddleware("vendor", "seller"))
+			{
+				vendorReviews.GET("", reviewHandler.GetVendorReviews)
+				vendorReviews.POST("/:id/respond", reviewHandler.RespondToReview)
 			}
 
 			// Payment Routes
@@ -136,8 +149,11 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				payments.POST("/create-intent", paymentHandler.CreatePaymentIntent)
 			}
 
-			// Public Webhook
+			// Public Webhook (Payment handler already initialized above)
 			router.POST("/api/v1/payments/webhook", paymentHandler.HandleWebhook)
+
+			// Public Review Routes
+			v1Group.GET("/products/:id/reviews", reviewHandler.GetProductReviews)
 
 			// Cart Routes
 			cartHandler := NewCartHandler(db)
