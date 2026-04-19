@@ -12,6 +12,7 @@ import (
 	"github.com/cloudinary/cloudinary-go/v2"
 	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
 	"github.com/developia-II/ecommerce-backend/internal/models"
+	"github.com/developia-II/ecommerce-backend/internal/services"
 	"github.com/developia-II/ecommerce-backend/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -22,11 +23,20 @@ import (
 )
 
 type OnboardingHandler struct {
-	DB *mongo.Database
+	DB        *mongo.Database
+	AIService *services.VerificationService
 }
 
 func NewOnboardingHandler(db *mongo.Database) *OnboardingHandler {
-	return &OnboardingHandler{DB: db}
+	aiService, err := services.NewVerificationService()
+	if err != nil {
+		// Log but don't crash - allow fallback to manual review
+		fmt.Printf("Warning: Could not initialize AI Verification Service: %v\n", err)
+	}
+	return &OnboardingHandler{
+		DB:        db,
+		AIService: aiService,
+	}
 }
 
 var onboardingValidator = validator.New()
@@ -505,10 +515,13 @@ func (h *OnboardingHandler) SellerBusinessInfo(c *gin.Context) {
 	update := bson.M{
 		"$set": bson.M{
 			"stepData.businessDetails": bson.M{
-				"businessName": input.BusinessName,
-				"description":  input.Description,
-				"location":     input.Location,
-				"url":          input.Url,
+				"businessName":   input.BusinessName,
+				"description":    input.Description,
+				"location":       input.Location,
+				"shipsFrom":      input.ShipsFrom,
+				"url":            input.Url,
+				"shippingPolicy": input.ShippingPolicy,
+				"returnPolicy":   input.ReturnPolicy,
 			},
 			"updatedAt": time.Now(),
 		},
@@ -576,19 +589,36 @@ func (h *OnboardingHandler) StoreDetails(c *gin.Context) {
 		return
 	}
 
-	src, err := file.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to process image"))
-		return
+	// 1. Upload Logo if present
+	logoFile, _ := c.FormFile("storeLogo")
+	logoURL := ""
+	if logoFile != nil {
+		src, err := logoFile.Open()
+		if err == nil {
+			uploadResult, err := cld.Upload.Upload(ctx, src, uploader.UploadParams{
+				Folder: "stores/logo",
+			})
+			if err == nil {
+				logoURL = uploadResult.SecureURL
+			}
+			src.Close()
+		}
 	}
-	defer src.Close()
 
-	uploadResult, err := cld.Upload.Upload(ctx, src, uploader.UploadParams{
-		Folder: "stores/logo",
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to upload image"))
-		return
+	// 2. Upload Banner if present
+	bannerFile, _ := c.FormFile("storeBanner")
+	bannerURL := ""
+	if bannerFile != nil {
+		src, err := bannerFile.Open()
+		if err == nil {
+			uploadResult, err := cld.Upload.Upload(ctx, src, uploader.UploadParams{
+				Folder: "stores/banners",
+			})
+			if err == nil {
+				bannerURL = uploadResult.SecureURL
+			}
+			src.Close()
+		}
 	}
 
 	collection := h.DB.Collection("drafts")
@@ -596,19 +626,39 @@ func (h *OnboardingHandler) StoreDetails(c *gin.Context) {
 		"userID": userID,
 		"role":   "vendor",
 	}
+	
+	// Create the update data map
+	storeData := bson.M{
+		"storeName":        storeName,
+		"storeDescription": storeDescription,
+		"primaryColor":     primaryColor,
+		"accentColor":      accentColor,
+	}
+	
+	if logoURL != "" {
+		storeData["storeLogo"] = logoURL
+	}
+	if bannerURL != "" {
+		storeData["storeBanner"] = bannerURL
+	}
+
 	update := bson.M{
 		"$set": bson.M{
-			"stepData.storeDetails": bson.M{
-				"storeLogo":        uploadResult.SecureURL,
-				"storeName":        storeName,
-				"storeDescription": storeDescription,
-				"primaryColor":     primaryColor,
-				"accentColor":      accentColor,
-			},
-			"updatedAt": time.Now(),
+			"stepData.storeDetails.storeName":        storeName,
+			"stepData.storeDetails.storeDescription": storeDescription,
+			"stepData.storeDetails.primaryColor":     primaryColor,
+			"stepData.storeDetails.accentColor":      accentColor,
+			"updatedAt":                            time.Now(),
 		},
 		"$setOnInsert": bson.M{"userID": userID, "role": "vendor", "step": 4},
 		"$inc":         bson.M{"version": 1},
+	}
+	
+	if logoURL != "" {
+		update["$set"].(bson.M)["stepData.storeDetails.storeLogo"] = logoURL
+	}
+	if bannerURL != "" {
+		update["$set"].(bson.M)["stepData.storeDetails.storeBanner"] = bannerURL
 	}
 
 	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
@@ -620,7 +670,8 @@ func (h *OnboardingHandler) StoreDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, utils.SuccessResponse("Store details updated", gin.H{
 		"success": true,
 		"data": gin.H{
-			"storeLogo":        uploadResult.SecureURL,
+			"storeLogo":        logoURL,
+			"storeBanner":      bannerURL,
 			"storeName":        storeName,
 			"storeDescription": storeDescription,
 			"primaryColor":     primaryColor,
@@ -642,10 +693,10 @@ func (h *OnboardingHandler) CalculateTier1RiskScore(user *models.User, applicati
 	accountAge := time.Since(user.CreatedAt)
 	if accountAge < 1*time.Hour {
 		score += 30 // Ultra-new account - almost certainly needs review
-		flags = append(flags, "Account created < 1 hour ago")
+		flags = append(flags, "Account was < 1 hour old at application")
 	} else if accountAge < 24*time.Hour {
 		score += 15
-		flags = append(flags, "Account created < 24 hours ago")
+		flags = append(flags, "Account was < 24 hours old at application")
 	}
 
 	// 3. Document Quality & Validation (30 points max)
@@ -748,6 +799,12 @@ func (h *OnboardingHandler) processDocumentUpload(form *multipart.Form, fieldNam
 	// Upload to Cloudinary
 	uploadResult, err := h.uploadToCloudinary(file, header)
 	if err != nil {
+		fmt.Printf("Error uploading %s to Cloudinary: %v\n", fieldName, err)
+		return nil
+	}
+
+	if uploadResult == nil || uploadResult.SecureURL == "" {
+		fmt.Printf("Cloudinary upload succeeded but SecureURL is empty for %s\n", fieldName)
 		return nil
 	}
 
@@ -761,18 +818,20 @@ func (h *OnboardingHandler) processDocumentUpload(form *multipart.Form, fieldNam
 }
 
 func (h *OnboardingHandler) uploadToCloudinary(file multipart.File, header *multipart.FileHeader) (*uploader.UploadResult, error) {
-	// Use your existing Cloudinary setup from store details upload
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create Cloudinary instance using the same pattern as StoreDetails
-	cld, err := cloudinary.NewFromParams(
-		os.Getenv("CLOUDINARY_CLOUD_NAME"),
-		os.Getenv("CLOUDINARY_API_KEY"),
-		os.Getenv("CLOUDINARY_API_SECRET"),
-	)
+	cloudName := os.Getenv("CLOUDINARY_CLOUD_NAME")
+	apiKey := os.Getenv("CLOUDINARY_API_KEY")
+	apiSecret := os.Getenv("CLOUDINARY_API_SECRET")
+
+	if cloudName == "" || apiKey == "" || apiSecret == "" {
+		return nil, fmt.Errorf("Cloudinary environment variables missing")
+	}
+
+	cld, err := cloudinary.NewFromParams(cloudName, apiKey, apiSecret)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize Cloudinary: %w", err)
 	}
 
 	uploadResult, err := cld.Upload.Upload(ctx, file, uploader.UploadParams{
@@ -894,8 +953,17 @@ func (h *OnboardingHandler) SellerVerification(c *gin.Context) {
 		if val, ok := busDetails["location"].(string); ok {
 			application.BusinessDetails.Location = val
 		}
+		if val, ok := busDetails["shipsFrom"].(string); ok {
+			application.BusinessDetails.ShipsFrom = val
+		}
 		if val, ok := busDetails["url"].(string); ok {
 			application.BusinessDetails.Url = val
+		}
+		if val, ok := busDetails["shippingPolicy"].(string); ok {
+			application.BusinessDetails.ShippingPolicy = val
+		}
+		if val, ok := busDetails["returnPolicy"].(string); ok {
+			application.BusinessDetails.ReturnPolicy = val
 		}
 
 		application.StoreName = application.BusinessDetails.BusinessName
@@ -905,6 +973,9 @@ func (h *OnboardingHandler) SellerVerification(c *gin.Context) {
 		application.StoreDetails = &models.StoreDetails{}
 		if val, ok := storeDetails["storeLogo"].(string); ok {
 			application.StoreDetails.StoreLogo = val
+		}
+		if val, ok := storeDetails["storeBanner"].(string); ok {
+			application.StoreDetails.StoreBanner = val
 		}
 		if val, ok := storeDetails["storeName"].(string); ok {
 			application.StoreDetails.StoreName = val
@@ -927,15 +998,56 @@ func (h *OnboardingHandler) SellerVerification(c *gin.Context) {
 		}
 	}
 
-	// 6. Calculate risk score
+	// 6. Calculate static risk score
 	riskScore := h.CalculateTier1RiskScore(&user, application)
 
-	// 7. Make approval decision
+	// 7. Perform AI Identity Verification (if service is available)
+	var aiResult *services.IdentityAnalysisResult
+	if h.AIService != nil && selfieDoc != nil {
+		// Use the user's name from DB for the expected name
+		res, err := h.AIService.AnalyzeIdentity(ctx, idDocument.FileURL, selfieDoc.FileURL, user.Name)
+		if err == nil {
+			aiResult = res
+
+			// Adjust risk score based on AI findings
+			if aiResult.IsMatch && aiResult.Confidence > 85 {
+				// AI is highly confident - reduce risk score
+				riskScore.Total = max(0, riskScore.Total-20)
+
+				// Clean up document-related flags if AI says it's good
+				var newFlags []string
+				for _, flag := range riskScore.Flags {
+					if !strings.Contains(flag, "document") && !strings.Contains(flag, "resolution") {
+						newFlags = append(newFlags, flag)
+					}
+				}
+				riskScore.Flags = newFlags
+			} else {
+				// AI found an issue - increase risk score
+				riskScore.Total += 40
+				riskScore.Flags = append(riskScore.Flags, fmt.Sprintf("AI Verification Failed: %s (Confidence: %d)", aiResult.RejectionReason, aiResult.Confidence))
+			}
+		} else {
+			fmt.Printf("AI Verification failed to run: %v\n", err)
+			// If AI failed to run, we must increase risk to prevent auto-approve
+			riskScore.Total += 50
+			riskScore.Flags = append(riskScore.Flags, "AI Verification System Error - Manual Review Required")
+		}
+	}
+
+	// 8. Make final approval decision
 	decision := h.MakeApprovalDecision(riskScore)
 
-	// 8. Update application status based on decision
+	// 9. Update application status based on decision
 	application.RiskScore = riskScore.Total
 	application.RiskFlags = riskScore.Flags
+
+	// Store AI metadata if available (for manual review context)
+	if aiResult != nil {
+		if application.ReviewNotes == "" {
+			application.ReviewNotes = fmt.Sprintf("AI Scan [%d%% Confidence]: %s", aiResult.Confidence, aiResult.RejectionReason)
+		}
+	}
 
 	// Only auto-approve Tier 1 (individual)
 	if application.RequestedTier == "individual" && decision.Action == "AUTO_APPROVE" {
@@ -1001,3 +1113,4 @@ func (h *OnboardingHandler) SellerVerification(c *gin.Context) {
 		"flags":         riskScore.Flags,
 	}))
 }
+

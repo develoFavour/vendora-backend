@@ -31,12 +31,14 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 
 	if db != nil {
 		logrus.Info("Database connected - setting up database routes")
+		userRepo := repository.NewUserRepository(db)
 		authHandler := NewAuthHandler(db)
 		onboardingHandler := NewOnboardingHandler(db)
 		productRepo := repository.NewProductRepository(db)
 		productHandler := NewProductHandler(db, productRepo)
 		categoryHandler := NewCategoryHandler(db)
 		uploadHandler := NewUploadHandler(db)
+		vendorHandler := NewVendorHandler(db, userRepo)
 
 		// Public Routes
 		v1Group := router.Group("/api/v1")
@@ -52,16 +54,39 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 		}
 
 		// Public Product Routes
-		publicProductGroup := router.Group("/api/v1/public/products")
+		publicProductGroup := v1Group.Group("/public/products")
 		{
 			publicProductGroup.GET("", productHandler.FetchProductsPublic)
 			publicProductGroup.GET("/:id", productHandler.FetchProductsPublicById)
+			publicProductGroup.GET("/:id/similar", productHandler.FetchSimilarProducts)
+		}
+
+		// Public Category Routes
+		publicCategoryGroup := v1Group.Group("/public/categories")
+		{
+			publicCategoryGroup.GET("", categoryHandler.GetAllProductCategories)
+		}
+
+		// Public Vendor Routes
+		publicVendorGroup := v1Group.Group("/public/vendors")
+		{
+			publicVendorGroup.GET("", vendorHandler.ListPublicVendors)
+			publicVendorGroup.GET("/:id", vendorHandler.GetPublicVendorById)
 		}
 
 		// Protected Routes
 		protected := router.Group("/api/v1")
 		protected.Use(middleware.AuthMiddleware())
 		{
+			// Profile / User Routes
+			userHandler := NewUserHandler(db)
+			profileGroup := protected.Group("/profile")
+			{
+				profileGroup.GET("", userHandler.GetProfile)
+				profileGroup.PUT("", userHandler.UpdateProfile)
+				profileGroup.PUT("/password", userHandler.ChangePassword)
+			}
+
 			// Onboarding Routes
 			onboarding := protected.Group("/onboarding")
 			{
@@ -94,8 +119,11 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			// Category Routes
 			categories := protected.Group("/categories")
 			{
-				categories.POST("", middleware.RoleMiddleware("admin"), categoryHandler.CreateProductCategory)
 				categories.GET("", categoryHandler.GetAllProductCategories)
+				categories.GET("/:id", categoryHandler.GetCategoryById)
+				categories.POST("", middleware.RoleMiddleware("admin"), categoryHandler.CreateProductCategory)
+				categories.PUT("/:id", middleware.RoleMiddleware("admin"), categoryHandler.UpdateProductCategory)
+				categories.DELETE("/:id", middleware.RoleMiddleware("admin"), categoryHandler.DeleteProductCategory)
 			}
 
 			// Media Routes
@@ -127,9 +155,9 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 			wishlistHandler := NewWishlistHandler(db)
 			wishlists := protected.Group("/wishlist")
 			{
-				wishlists.POST("/add", wishlistHandler.AddToWishlist)
+				wishlists.POST("", wishlistHandler.AddToWishlist)
 				wishlists.GET("", wishlistHandler.GetWishlist)
-				wishlists.DELETE("/remove/:productId", wishlistHandler.RemoveFromWishlist)
+				wishlists.DELETE("/:id", wishlistHandler.RemoveFromWishlist)
 			}
 
 			// Review Routes
@@ -143,11 +171,58 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 				vendorReviews.POST("/:id/respond", reviewHandler.RespondToReview)
 			}
 
+			// Wallet & Payout Routes
+			walletHandler := NewWalletHandler(db)
+			wallet := protected.Group("/vendor/wallet")
+			wallet.Use(middleware.RoleMiddleware("vendor", "seller"))
+			{
+				wallet.GET("/overview", walletHandler.GetWalletOverview)
+				wallet.POST("/payout", walletHandler.RequestPayout)
+			}
+
+			// Tier Upgrade Routes
+			tierHandler := NewTierHandler(db)
+			tier := protected.Group("/vendor/tier")
+			tier.Use(middleware.RoleMiddleware("vendor", "seller"))
+			{
+				tier.POST("/upgrade", tierHandler.RequestUpgrade)
+				tier.GET("/status", tierHandler.GetUpgradeStatus)
+				tier.GET("/history", tierHandler.GetUpgradeHistory)
+				tier.GET("/eligibility", tierHandler.GetEligibility)
+				tier.POST("/appeal", tierHandler.SubmitAppeal)
+			}
+
+			// Public Vendor Application
+			protected.POST("/vendor/apply", vendorHandler.ApplyForVendor)
+
+			// Admin Routes
+			adminHandler := NewAdminHandler(db)
+			admin := protected.Group("/admin")
+			admin.Use(middleware.RoleMiddleware("admin"))
+			{
+				admin.GET("/stats", adminHandler.GetPlatformStats)
+				admin.GET("/vendors", adminHandler.ListVendors)
+				admin.GET("/vendors/:id", adminHandler.GetVendor)
+				admin.GET("/products", adminHandler.ListProducts)
+				admin.GET("/products/:id", adminHandler.GetProduct)
+				admin.PUT("/products/:id/flag", adminHandler.FlagProduct)
+				admin.PUT("/products/:id/approve", adminHandler.ApproveProduct)
+				admin.GET("/customers", adminHandler.ListCustomers)
+				admin.GET("/orders", adminHandler.ListOrders)
+				admin.GET("/orders/:id", adminHandler.GetOrder)
+				admin.GET("/tier-requests", adminHandler.ListTierRequests)
+				admin.PUT("/tier-requests/:id/approve", adminHandler.ApproveTierRequest)
+				admin.PUT("/tier-requests/:id/reject", adminHandler.RejectTierRequest)
+				admin.PUT("/vendors/:id/unsuspend", adminHandler.UnsuspendVendor)
+				admin.PUT("/vendors/:id/ban", adminHandler.BanVendor)
+			}
+
 			// Payment Routes
 			paymentHandler := NewPaymentHandler(db)
 			payments := protected.Group("/payments")
 			{
 				payments.POST("/create-intent", paymentHandler.CreatePaymentIntent)
+				payments.POST("/verify/:id", paymentHandler.VerifyPayment)
 			}
 
 			// Public Webhook (Payment handler already initialized above)
@@ -155,6 +230,7 @@ func SetupRoutes(router *gin.Engine, db *mongo.Database) {
 
 			// Public Review Routes
 			v1Group.GET("/products/:id/reviews", reviewHandler.GetProductReviews)
+
 
 			// Cart Routes
 			cartHandler := NewCartHandler(db)

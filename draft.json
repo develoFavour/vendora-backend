@@ -1,0 +1,73 @@
+[
+  {
+    "_id": "68e8ef3be65480fadb457a2d",
+    "role": "customer",
+    "step": 0,
+    "stepCompleted": false,
+    "stepData": {},
+    "updatedAt": "2025-10-10T11:34:18.848Z",
+    "userID": "68e8d07b6217a1b51fae014e",
+    "version": 1
+  },
+  {
+    "_id": "68ea9b52e65480fadb45ade6",
+    "role": "vendor",
+    "step": 1,
+    "stepData": {
+      "businessDetails": {
+        "businessName": "Developia",
+        "description": "This is my description, A software engineering company, the best is yet to come",
+        "location": "Lagos, Nigeria",
+        "url": ""
+      },
+      "businessInfo": {
+        "experience": "6months-2years",
+        "size": "51-100",
+        "type": "unregistered"
+      },
+      "categories": [
+        "Cosmetics"
+      ],
+      "storeDetails": {
+        "accentColor": "#f5a623",
+        "primaryColor": "#f5a623",
+        "storeDescription": "This is my description, A software engineering company, the best is yet to come",
+        "storeLogo": "https://res.cloudinary.com/dbustljrd/image/upload/v1760217904/stores/logo/ltmwnhx2fvyq8vfogg9k.jpg",
+        "storeName": "Developia"
+      }
+    },
+    "updatedAt": "2025-10-11T21:25:05.067Z",
+    "userID": "68e8d07b6217a1b51fae014e",
+    "version": 6
+  },
+  {
+    "_id": "694d26bdf2c1d6824c0e132c",
+    "role": "vendor",
+    "step": 2,
+    "stepData": {
+      "categories": [
+        "home-living",
+        "fashion",
+        "art-collectibles"
+      ]
+    },
+    "updatedAt": "2025-12-25T14:38:27.755Z",
+    "userID": "694d264494be96f3153a231c",
+    "version": 7
+  },
+  {
+    "_id": "69a1f721a51c2a02be6c3d11",
+    "role": "vendor",
+    "step": 2,
+    "stepData": {
+      "categories": [
+        "home-living",
+        "fashion",
+        "jewelry"
+      ]
+    },
+    "updatedAt": "2026-02-27T19:57:23.115Z",
+    "userID": "69a1f60e7538059f501efb73",
+    "version": 1
+  }
+]

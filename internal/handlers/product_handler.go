@@ -250,6 +250,7 @@ func (h *ProductHandler) FetchProductsPublic(c *gin.Context) {
 
 	searchTerm := c.Query("query")
 	category := c.Query("category")
+	sortParam := c.DefaultQuery("sort", "newest")
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "12"))
@@ -262,9 +263,10 @@ func (h *ProductHandler) FetchProductsPublic(c *gin.Context) {
 	}
 
 	filter := h.buildProductFilter(searchTerm, category)
+	sort := h.buildProductSort(sortParam)
 	pageSkip := (page - 1) * limit
 
-	products, total, err := h.Repo.FetchProductsPublic(ctx, filter, limit, pageSkip)
+	products, total, err := h.Repo.FetchProductsPublic(ctx, filter, sort, limit, pageSkip)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to fetch products"))
 		return
@@ -303,13 +305,51 @@ func (h *ProductHandler) FetchProductsPublicById(c *gin.Context) {
 
 }
 
+func (h *ProductHandler) FetchSimilarProducts(c *gin.Context) {
+	id := c.Param("id")
+	productId, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("invalid product id"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	// 1. Get the current product to find its category
+	product, err := h.Repo.FetchProductsPublicById(ctx, bson.M{"_id": productId, "status": "active"})
+	if err != nil {
+		c.JSON(http.StatusNotFound, utils.ErrorResponse("source product not found"))
+		return
+	}
+
+	// 2. Fetch similar products (same category, different ID)
+	filter := bson.M{
+		"_id":        bson.M{"$ne": productId},
+		"categoryId": product.CategoryID,
+		"status":     "active",
+	}
+	sort := bson.M{"createdAt": -1}
+	limit := 4
+
+	similar, _, err := h.Repo.FetchProductsPublic(ctx, filter, sort, limit, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("failed to fetch similar products"))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Similar products retrieved", gin.H{
+		"products": similar,
+	}))
+}
+
 func (h *ProductHandler) buildProductFilter(query, category string) bson.M {
 	filter := bson.M{
 		"status": "active",
 	}
 
 	if query != "" {
-		filter["$text"] = bson.M{"$search": query}
+		filter["name"] = bson.M{"$regex": query, "$options": "i"}
 	}
 
 	if category != "" {
@@ -320,4 +360,19 @@ func (h *ProductHandler) buildProductFilter(query, category string) bson.M {
 	}
 
 	return filter
+}
+
+func (h *ProductHandler) buildProductSort(sort string) bson.M {
+	switch sort {
+	case "price-low":
+		return bson.M{"price": 1}
+	case "price-high":
+		return bson.M{"price": -1}
+	case "rating":
+		return bson.M{"rating": -1}
+	case "newest":
+		return bson.M{"createdAt": -1}
+	default:
+		return bson.M{"createdAt": -1}
+	}
 }

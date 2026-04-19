@@ -17,6 +17,10 @@ type LimitCheckResult struct {
 	MaxAllowed   int
 	Tier         string
 	UpgradeURL   string
+
+	// Payout specific
+	MaxWithdrawal float64
+	HoldDays      int
 }
 
 func CheckVendorLimits(ctx context.Context, vendorID primitive.ObjectID, db *mongo.Database) (LimitCheckResult, error) {
@@ -38,11 +42,13 @@ func CheckVendorLimits(ctx context.Context, vendorID primitive.ObjectID, db *mon
 
 	if vendor.ProductCount >= vendor.MaxProducts {
 		return LimitCheckResult{
-				Allowed:      false,
-				CurrentCount: int64(vendor.ProductCount),
-				MaxAllowed:   vendor.MaxProducts,
-				Tier:         vendor.Tier,
-				UpgradeURL:   "",
+				Allowed:       false,
+				CurrentCount:  int64(vendor.ProductCount),
+				MaxAllowed:    vendor.MaxProducts,
+				Tier:          vendor.Tier,
+				UpgradeURL:    "",
+				MaxWithdrawal: vendor.MaxMonthlySales,
+				HoldDays:      vendor.PayoutHoldDays,
 			}, fmt.Errorf(
 				"you've reached your product limit (%d/%d) for %s tier. Upgrade your account to add more products",
 				vendor.ProductCount,
@@ -51,11 +57,38 @@ func CheckVendorLimits(ctx context.Context, vendorID primitive.ObjectID, db *mon
 			)
 	}
 	return LimitCheckResult{
-		Allowed:      true,
-		CurrentCount: int64(vendor.ProductCount),
-		MaxAllowed:   vendor.MaxProducts,
-		Tier:         vendor.Tier,
-		UpgradeURL:   "",
+		Allowed:       true,
+		CurrentCount:  int64(vendor.ProductCount),
+		MaxAllowed:    vendor.MaxProducts,
+		Tier:          vendor.Tier,
+		UpgradeURL:    "",
+		MaxWithdrawal: vendor.MaxMonthlySales,
+		HoldDays:      vendor.PayoutHoldDays,
 	}, nil
+}
 
+func CheckPayoutEligibility(ctx context.Context, vendorID primitive.ObjectID, amount float64, db *mongo.Database) (bool, error) {
+	var vendor models.VendorAccount
+	collection := db.Collection("vendorAccounts")
+	err := collection.FindOne(ctx, bson.M{"userID": vendorID}).Decode(&vendor)
+	if err != nil {
+		return false, err
+	}
+
+	if vendor.Status != "active" {
+		return false, fmt.Errorf("vendor account is not active")
+	}
+
+	// Range limit check for Tier 1 and 2
+	if vendor.Tier != "business" {
+		if amount > vendor.MaxMonthlySales {
+			return false, fmt.Errorf("withdrawal amount exceeds your monthly limit of %f for %s tier", vendor.MaxMonthlySales, vendor.Tier)
+		}
+	}
+
+	if amount > vendor.AvailableBalance {
+		return false, fmt.Errorf("insufficient available balance")
+	}
+
+	return true, nil
 }

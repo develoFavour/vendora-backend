@@ -13,7 +13,7 @@ import (
 )
 
 type ProductRepository interface {
-	FetchProductsPublic(ctx context.Context, filter bson.M, limit, skip int) ([]models.Product, int64, error)
+	FetchProductsPublic(ctx context.Context, filter bson.M, sort bson.M, limit, skip int) ([]models.Product, int64, error)
 	FetchProductsPublicById(ctx context.Context, filter bson.M) (models.Product, error)
 	CreateProduct(ctx context.Context, product models.Product) (models.Product, error)
 	GetVendorProducts(ctx context.Context, filter bson.M, limit, skip int64) ([]models.Product, int64, error)
@@ -30,16 +30,29 @@ func NewProductRepository(db *mongo.Database) ProductRepository {
 	return &MongoProductRepository{DB: db}
 }
 
-func (r *MongoProductRepository) FetchProductsPublic(ctx context.Context, filter bson.M, limit, skip int) ([]models.Product, int64, error) {
-
+func (r *MongoProductRepository) FetchProductsPublic(ctx context.Context, filter bson.M, sort bson.M, limit, skip int) ([]models.Product, int64, error) {
 	collection := r.DB.Collection("products")
-	opts := options.Find().
-		SetSkip(int64(skip)).
-		SetLimit(int64(limit)).
-		SetSort(bson.M{"createdAt": -1}).
-		SetProjection(bson.M{"costPrice": 0})
 
-	cursor, err := collection.Find(ctx, filter, opts)
+	pipeline := []bson.M{
+		{"$match": filter},
+		{"$lookup": bson.M{
+			"from":         "users",
+			"localField":   "vendorId",
+			"foreignField": "_id",
+			"as":           "vendor",
+		}},
+		{"$unwind": bson.M{"path": "$vendor", "preserveNullAndEmptyArrays": true}},
+		{"$addFields": bson.M{
+			"vendorName":     "$vendor.name",
+			"vendorLocation": "$vendor.profile.location",
+		}},
+		{"$project": bson.M{"vendor": 0, "costPrice": 0}},
+		{"$sort": sort},
+		{"$skip": int64(skip)},
+		{"$limit": int64(limit)},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -49,6 +62,7 @@ func (r *MongoProductRepository) FetchProductsPublic(ctx context.Context, filter
 	if err := cursor.All(ctx, &products); err != nil {
 		return nil, 0, err
 	}
+
 	total, err := collection.CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, 0, err
@@ -56,14 +70,43 @@ func (r *MongoProductRepository) FetchProductsPublic(ctx context.Context, filter
 
 	return products, total, nil
 }
+
 func (r *MongoProductRepository) FetchProductsPublicById(ctx context.Context, filter bson.M) (models.Product, error) {
 	collection := r.DB.Collection("products")
-	opts := options.FindOne().SetProjection(bson.M{"costPrice": 0})
-	var product models.Product
-	if err := collection.FindOne(ctx, filter, opts).Decode(&product); err != nil {
+
+	pipeline := []bson.M{
+		{"$match": filter},
+		{"$lookup": bson.M{
+			"from":         "users",
+			"localField":   "vendorId",
+			"foreignField": "_id",
+			"as":           "vendor",
+		}},
+		{"$unwind": bson.M{"path": "$vendor", "preserveNullAndEmptyArrays": true}},
+		{"$addFields": bson.M{
+			"vendorName":     "$vendor.name",
+			"vendorLocation": "$vendor.profile.location",
+		}},
+		{"$project": bson.M{"vendor": 0, "costPrice": 0}},
+		{"$limit": 1},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
 		return models.Product{}, err
 	}
-	return product, nil
+	defer cursor.Close(ctx)
+
+	var products []models.Product
+	if err := cursor.All(ctx, &products); err != nil {
+		return models.Product{}, err
+	}
+
+	if len(products) == 0 {
+		return models.Product{}, mongo.ErrNoDocuments
+	}
+
+	return products[0], nil
 }
 
 func (r *MongoProductRepository) CreateProduct(ctx context.Context, product models.Product) (models.Product, error) {

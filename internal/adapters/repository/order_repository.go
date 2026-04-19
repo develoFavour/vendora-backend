@@ -47,7 +47,6 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 		Qty int
 	}
 
-	// 1. Process each item: Validate Stock and Reduce Inventory
 	for _, item := range cart.Items {
 		var product models.Product
 		err := productColl.FindOne(ctx, bson.M{"_id": item.ProductID}).Decode(&product)
@@ -55,7 +54,6 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 			return models.Order{}, fmt.Errorf("product %s not found", item.Name)
 		}
 
-		// Atomic update with stock check
 		filter := bson.M{
 			"_id":   item.ProductID,
 			"stock": bson.M{"$gte": item.Quantity},
@@ -67,14 +65,12 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 
 		res, err := productColl.UpdateOne(ctx, filter, update)
 		if err != nil {
-			// Rollback previously processed items
 			for _, p := range processedProducts {
 				productColl.UpdateOne(ctx, bson.M{"_id": p.ID}, bson.M{"$inc": bson.M{"stock": p.Qty}})
 			}
 			return models.Order{}, err
 		}
 		if res.ModifiedCount == 0 {
-			// Rollback previously processed items
 			for _, p := range processedProducts {
 				productColl.UpdateOne(ctx, bson.M{"_id": p.ID}, bson.M{"$inc": bson.M{"stock": p.Qty}})
 			}
@@ -99,7 +95,6 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 		subtotal += itemSubtotal
 	}
 
-	// 2. Calculate Totals
 	shippingFee := 25.0
 	if subtotal > 500 {
 		shippingFee = 0
@@ -107,7 +102,6 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 	tax := subtotal * 0.05
 	total := subtotal + shippingFee + tax
 
-	// 3. Create Order Object
 	orderNumber := fmt.Sprintf("VEN-%d%d", time.Now().Unix()%100000, rand.Intn(900)+100)
 	order := models.Order{
 		ID:              primitive.NewObjectID(),
@@ -126,7 +120,6 @@ func (r *MongoOrderRepository) PlaceOrder(ctx context.Context, userID primitive.
 		UpdatedAt:       time.Now(),
 	}
 
-	// 4. Insert Order
 	ctxInsert, cancelInsert := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelInsert()
 

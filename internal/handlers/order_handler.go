@@ -24,7 +24,6 @@ func NewOrderHandler(db *mongo.Database) *OrderHandler {
 	return &OrderHandler{Repo: repo, CartRepo: cartRepo}
 }
 
-// PlaceOrder handles the checkout process
 func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 	userIdStr, _ := c.Get("userId")
 	userID, _ := primitive.ObjectIDFromHex(userIdStr.(string))
@@ -38,7 +37,6 @@ func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	// 1. Get User's Cart
 	cart, err := h.CartRepo.GetCart(ctx, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch cart"))
@@ -50,7 +48,6 @@ func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 		return
 	}
 
-	// 2. Place Order (Transaction logic is inside Repo)
 	order, err := h.Repo.PlaceOrder(ctx, userID, input, cart)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse(err.Error()))
@@ -60,7 +57,6 @@ func (h *OrderHandler) PlaceOrder(c *gin.Context) {
 	c.JSON(http.StatusCreated, utils.SuccessResponse("Order placed successfully", gin.H{"order": order}))
 }
 
-// GetUserOrders returns the order history for a buyer
 func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 	userIdStr, _ := c.Get("userId")
 	userID, _ := primitive.ObjectIDFromHex(userIdStr.(string))

@@ -272,13 +272,21 @@ func (h *AuthHandler) LoginUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to save refresh token"))
 		return
 	}
+	var profile models.UserProfile
+	if user.Profile != nil {
+		profile = *user.Profile
+	}
+
 	res := gin.H{
 		"success": true,
 		"user": gin.H{
-			"name":    user.Name,
-			"email":   user.Email,
-			"address": user.Address,
-			"role":    user.Role,
+			"id":             user.ID.Hex(),
+			"name":           user.Name,
+			"email":          user.Email,
+			"address":        user.Address,
+			"role":           user.Role,
+			"profile":        profile,
+			"profilePicture": profile.ProfilePicture,
 		},
 		"accessToken":  token,
 		"refreshToken": refreshToken,

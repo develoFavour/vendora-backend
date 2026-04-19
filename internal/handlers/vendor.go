@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/developia-II/ecommerce-backend/internal/adapters/repository"
 	"github.com/developia-II/ecommerce-backend/internal/models"
 	"github.com/developia-II/ecommerce-backend/utils"
 	"github.com/gin-gonic/gin"
@@ -16,11 +18,12 @@ import (
 )
 
 type VendorHandler struct {
-	DB *mongo.Database
+	DB   *mongo.Database
+	Repo repository.UserRepository
 }
 
-func NewVendorHandler(db *mongo.Database) *VendorHandler {
-	return &VendorHandler{DB: db}
+func NewVendorHandler(db *mongo.Database, repo repository.UserRepository) *VendorHandler {
+	return &VendorHandler{DB: db, Repo: repo}
 }
 
 var vendorValidator = validator.New()
@@ -148,4 +151,69 @@ func (h *VendorHandler) ApplyForVendor(c *gin.Context) {
 		"status":        "pending",
 		"message":       "Your application is under review. You'll be notified once it's approved.",
 	}))
+}
+
+func (h *VendorHandler) ListPublicVendors(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "12"))
+	search := c.Query("search")
+	category := c.Query("category")
+    
+	if page < 1 { page = 1 }
+	if limit < 1 { limit = 12 }
+	skip := (page - 1) * limit
+
+	filter := bson.M{"vendorStatus": "approved"}
+	if search != "" {
+		filter["$or"] = []bson.M{
+			{"name": bson.M{"$regex": search, "$options": "i"}},
+			{"sellerApplication.storeName": bson.M{"$regex": search, "$options": "i"}},
+		}
+	}
+	if category != "" {
+		filter["sellerApplication.categories"] = category
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	vendors, total, err := h.Repo.ListVendorsPublic(ctx, filter, limit, skip)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch vendors: "+err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Vendors fetched successfully", gin.H{
+		"vendors": vendors,
+		"meta": gin.H{
+			"total": total,
+			"page":  page,
+			"limit": limit,
+		},
+	}))
+}
+
+func (h *VendorHandler) GetPublicVendorById(c *gin.Context) {
+	id := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse("Invalid vendor ID"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{"_id": objID, "vendorStatus": "approved"}
+	vendor, err := h.Repo.FetchVendorPublic(ctx, filter)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, utils.ErrorResponse("Vendor not found or not yet approved"))
+		} else {
+			c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to fetch vendor: "+err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, utils.SuccessResponse("Vendor details fetched successfully", vendor))
 }

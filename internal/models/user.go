@@ -13,8 +13,23 @@ type RegisterInput struct {
 	Phone    string `json:"phone"`
 	Address  string `json:"address"`
 }
+
+type UpdateProfileInput struct {
+	Name           string `json:"name"`
+	Phone          string `json:"phone"`
+	Address        string `json:"address"`
+	Location       string `json:"location"`
+	Bio            string `json:"bio"`
+	ProfilePicture string `json:"profilePicture"`
+}
+
+type ChangePasswordInput struct {
+	CurrentPassword string `json:"currentPassword" binding:"required"`
+	NewPassword     string `json:"newPassword" binding:"required,min=6"`
+}
+
 type User struct {
-	ID               primitive.ObjectID `bson:"_id,omitempty"`
+	ID               primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	Email            string             `json:"email" bson:"email" validate:"required,email"`
 	Name             string             `json:"name" bson:"name"`
 	Address          string             `json:"address" bson:"address"`
@@ -39,6 +54,7 @@ type User struct {
 	VendorStatus      string             `json:"vendorStatus" bson:"vendorStatus"` // "", "pending", "approved", "rejected"
 	SellerApplication *SellerApplication `json:"sellerApplication" bson:"sellerApplication"`
 	VendorAccount     *VendorAccount     `json:"vendorAccount" bson:"vendorAccount"`
+	FeaturedProducts  []Product          `json:"featuredProducts,omitempty" bson:"featuredProducts,omitempty"`
 }
 
 type UserPreferences struct {
@@ -131,15 +147,19 @@ type SellerBusinessInfo struct {
 	BusinessExperience string `json:"experience" bson:"experience" validate:"required,oneof=0-6months 6months-2years 2years-5years 5years-10years 10years+"`
 }
 type BusinessDetails struct {
-	BusinessName string `json:"businessName,omitempty" bson:"businessName,omitempty"`
-	Description  string `json:"description" bson:"description" validate:"required,min=50,max=1000"`
-	Location     string `json:"location" bson:"location" validate:"required"`
-	Url          string `json:"url,omitempty" bson:"url,omitempty" validate:"omitempty,url"`
+	BusinessName   string `json:"businessName,omitempty" bson:"businessName,omitempty"`
+	Description    string `json:"description" bson:"description" validate:"required,min=50,max=1000"`
+	Location       string `json:"location" bson:"location" validate:"required"`
+	ShipsFrom      string `json:"shipsFrom,omitempty" bson:"shipsFrom,omitempty"`
+	Url            string `json:"url,omitempty" bson:"url,omitempty" validate:"omitempty,url"`
+	ShippingPolicy string `json:"shippingPolicy,omitempty" bson:"shippingPolicy,omitempty"`
+	ReturnPolicy   string `json:"returnPolicy,omitempty" bson:"returnPolicy,omitempty"`
 }
 type StoreDetails struct {
 	StoreName        string `json:"storeName" bson:"storeName"`
 	StoreDescription string `json:"storeDescription" bson:"storeDescription"`
 	StoreLogo        string `json:"storeLogo,omitempty" bson:"storeLogo,omitempty"`
+	StoreBanner      string `json:"storeBanner,omitempty" bson:"storeBanner,omitempty"`
 	PrimaryColor     string `json:"primaryColor,omitempty" bson:"primaryColor,omitempty"`
 	AccentColor      string `json:"accentColor,omitempty" bson:"accentColor,omitempty"`
 }
@@ -191,9 +211,18 @@ type VendorAccount struct {
 	PositiveReviews int `json:"positiveReviews" bson:"positiveReviews"`
 	DisputeCount    int `json:"disputeCount" bson:"disputeCount"`
 
+	// Financials
+	AvailableBalance float64 `json:"availableBalance" bson:"availableBalance"`
+	PendingBalance   float64 `json:"pendingBalance" bson:"pendingBalance"`
+	LifeTimeEarnings float64 `json:"lifeTimeEarnings" bson:"lifeTimeEarnings"`
+
 	// Status
-	Status     string `json:"status" bson:"status"` // "active", "suspended", "banned"
-	IsVerified bool   `json:"isVerified" bson:"isVerified"`
+	Status              string     `json:"status" bson:"status"` // "active", "suspended", "banned"
+	IsVerified          bool       `json:"isVerified" bson:"isVerified"`
+	VerificationRetries int        `json:"verificationRetries" bson:"verificationRetries"`
+	SuspendedUntil      *time.Time `json:"suspendedUntil,omitempty" bson:"suspendedUntil,omitempty"`
+	AppealStatus        string     `json:"appealStatus,omitempty" bson:"appealStatus,omitempty"` // "pending", "approved", "rejected"
+	AppealReason        string     `json:"appealReason,omitempty" bson:"appealReason,omitempty"`
 
 	// Timestamps
 	ActivatedAt time.Time  `json:"activatedAt" bson:"activatedAt"`

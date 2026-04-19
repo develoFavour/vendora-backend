@@ -44,7 +44,7 @@ type SEO struct {
 
 type Product struct {
 	ID       primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	VendorID primitive.ObjectID `json:"-" bson:"vendorId"`
+	VendorID primitive.ObjectID `json:"vendorId" bson:"vendorId"`
 
 	// Basic Info
 	Name        string `json:"name" bson:"name" validate:"required"`
@@ -57,8 +57,12 @@ type Product struct {
 	Tags           []string             `json:"tags" bson:"tags"`
 
 	// Media
-	Images   []string `json:"images" bson:"images"` // First image is primary
-	VideoURL string   `json:"videoUrl" bson:"videoUrl"`
+	Images   []string           `json:"images" bson:"images"` // First image is primary
+	VideoURL string             `json:"videoUrl" bson:"videoUrl"`
+
+	// Enriched fields (not stored in product collection, but added by aggregation)
+	VendorName     string `json:"vendorName,omitempty" bson:"vendorName"`
+	VendorLocation string `json:"vendorLocation,omitempty" bson:"vendorLocation"`
 
 	// Pricing
 	Price     float64 `json:"price" bson:"price" validate:"required,gt=0"`

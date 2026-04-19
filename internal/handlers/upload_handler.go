@@ -30,15 +30,9 @@ func (h *UploadHandler) UploadImage(c *gin.Context) {
 		return
 	}
 	authStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := utils.VerifyToken(authStr)
+	_, err := utils.VerifyToken(authStr)
 	if err != nil {
 		c.JSON(http.StatusForbidden, utils.ErrorResponse(err.Error()))
-		return
-	}
-
-	// Only vendors are allowed to upload product images
-	if claims.Role != "vendor" {
-		c.JSON(http.StatusForbidden, utils.ErrorResponse("Only vendors can upload images"))
 		return
 	}
 
