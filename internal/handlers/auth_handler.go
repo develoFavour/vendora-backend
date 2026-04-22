@@ -71,7 +71,7 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to register user"))
 		return
 	}
-	verificationLink := fmt.Sprintf("http://localhost:3000/verify?token=%s", newUser.ID.Hex())
+	verificationLink := fmt.Sprintf("https://vendora-f.vercel.app/verify?token=%s", newUser.ID.Hex())
 	emailBody := fmt.Sprintf(`
     <html>
     <body style="font-family: Arial, sans-serif;">
@@ -193,7 +193,7 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	}
 
 	// Generate new verification link (using the same user ID as token)
-	verificationLink := fmt.Sprintf("http://localhost:3000/verify?token=%s", user.ID.Hex())
+	verificationLink := fmt.Sprintf("https://vendora-f.vercel.app/verify?token=%s", user.ID.Hex())
 	emailBody := fmt.Sprintf(`
     <html>
     <body style="font-family: Arial, sans-serif;">
@@ -335,7 +335,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, utils.ErrorResponse("Failed to save reset token"))
 		return
 	}
-	resetLink := fmt.Sprintf("http://localhost:3000/reset-password?token=%s", resetToken)
+	resetLink := fmt.Sprintf("https://vendora-f.vercel.app/reset-password?token=%s", resetToken)
 	emailBody := fmt.Sprintf(`
         <html>
         <body style="font-family: Arial, sans-serif;">
