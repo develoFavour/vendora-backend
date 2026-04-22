@@ -10,6 +10,8 @@
 *.so
 *.dylib
 tmp/
+.gocache/
+.gomodcache/
 
 # Test binaries
 *.test
