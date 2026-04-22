@@ -14,30 +14,33 @@ import (
 
 func ConnectToDB() (*mongo.Database, error) {
 	if err := godotenv.Load(); err != nil {
-		// Don't return error—just log and continue
 		logrus.Info("No .env file found (using environment variables)")
 	}
 
-	var MONGO_URI = os.Getenv("MONGO_URI")
-	fmt.Println(MONGO_URI)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		return nil, fmt.Errorf("MONGO_URI is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	res, err := mongo.Connect(ctx, options.Client().
+	logrus.Info("Connecting to MongoDB...")
+	client, err := mongo.Connect(ctx, options.Client().
 		SetMaxPoolSize(10).
 		SetMinPoolSize(5).
 		SetMaxConnIdleTime(30*time.Second).
-		SetServerSelectionTimeout(30*time.Second).
-		SetConnectTimeout(30*time.Second).
-		ApplyURI(MONGO_URI))
-
+		SetServerSelectionTimeout(10*time.Second).
+		SetConnectTimeout(10*time.Second).
+		ApplyURI(mongoURI))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mongo connect failed: %w", err)
 	}
 
-	if err := res.Ping(ctx, nil); err != nil {
-		return nil, err
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, fmt.Errorf("mongo ping failed: %w", err)
 	}
 
-	return res.Database("vendora"), nil
+	logrus.Info("MongoDB connection ready")
+	return client.Database("vendora"), nil
 }

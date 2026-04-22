@@ -18,8 +18,8 @@ func main() {
 	}
 
 	logrus.Info("Starting server...")
-	gin.SetMode(gin.DebugMode)
 	logrus.SetLevel(logrus.InfoLevel)
+	gin.SetMode(gin.ReleaseMode)
 
 	logrus.Info("Attempting to connect to database...")
 	db, err := database.ConnectToDB()
@@ -42,6 +42,7 @@ func main() {
 
 	logrus.Info("Calling handlers.SetupRoutes...")
 	handlers.SetupRoutes(router, db)
+	logrus.Info("Routes registered successfully")
 
 	PORT := os.Getenv("PORT")
 	if PORT == "" {
@@ -53,5 +54,7 @@ func main() {
 	}
 
 	logrus.Info("Starting server on port: " + PORT)
-	router.Run(PORT)
+	if err := router.Run(PORT); err != nil {
+		logrus.WithError(err).Fatal("Failed to start HTTP server")
+	}
 }

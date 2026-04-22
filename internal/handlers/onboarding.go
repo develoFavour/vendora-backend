@@ -28,14 +28,9 @@ type OnboardingHandler struct {
 }
 
 func NewOnboardingHandler(db *mongo.Database) *OnboardingHandler {
-	aiService, err := services.NewVerificationService()
-	if err != nil {
-		// Log but don't crash - allow fallback to manual review
-		fmt.Printf("Warning: Could not initialize AI Verification Service: %v\n", err)
-	}
 	return &OnboardingHandler{
 		DB:        db,
-		AIService: aiService,
+		AIService: nil,
 	}
 }
 

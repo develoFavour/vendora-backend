@@ -22,11 +22,10 @@ type TierHandler struct {
 }
 
 func NewTierHandler(db *mongo.Database) *TierHandler {
-	aiService, _ := services.NewVerificationService()
 	return &TierHandler{
 		Repo:      repository.NewTierRepository(db),
 		UserRepo:  repository.NewUserRepository(db),
-		AIService: aiService,
+		AIService: nil,
 	}
 }
 
